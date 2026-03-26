@@ -628,7 +628,7 @@ function openEM(entryId, chanId, actId){
     ${actRequired?'<span class="err-msg">Select an activity</span>':''}
   </div>`;
 
-  const canApp = approveState||!!(e?.jira);
+  const canApp = true; // Approval always available — JIRA is optional
 
   g('em-body').innerHTML=`
     <div class="sdiv"><span>Details</span></div>
@@ -693,9 +693,9 @@ function openEM(entryId, chanId, actId){
 
   g('em-foot').innerHTML=`
     <div style="display:flex;align-items:center;gap:8px">
-      <div class="toggle-track ${approveState?'on':''} ${!canApp?'disabled':''}" id="app-tog" onclick="toggleApp()"><div class="toggle-knob"></div></div>
+      <div class="toggle-track ${approveState?'on':''}" id="app-tog" onclick="toggleApp()"><div class="toggle-knob"></div></div>
       <span id="app-lbl" style="font-size:12px;font-weight:500;color:${approveState?'var(--su)':'var(--t3)'}">${approveState?'Approved':'Pending'}</span>
-      <span id="app-hint" style="font-size:11px;color:var(--t3)">${!canApp?'(requires JIRA)':''}</span>
+      <span id="app-hint" style="font-size:11px;color:var(--t3)"></span>
     </div>
     <div style="display:flex;gap:8px">
       <button class="btn btn-g" onclick="closeEM()">Cancel</button>
@@ -728,16 +728,24 @@ function onChChange(sel){
   if(ch) applyMapping(ch.name);
 }
 function onJiraInput(){
-  const has=!!(gv('m-jira'));
-  const t=g('app-tog'),h=g('app-hint');
-  if(!has){t?.classList.add('disabled');if(h)h.textContent='(requires JIRA)';approveState=false;t?.classList.remove('on');const l=g('app-lbl');if(l){l.textContent='Pending';l.style.color='var(--t3)';}}
-  else{t?.classList.remove('disabled');if(h)h.textContent='';}
+  // JIRA is optional — no gating on approval
 }
 function toggleApp(){
-  if(!gv('m-jira')){toast('Add a JIRA link first','err');return;}
   approveState=!approveState;
   g('app-tog')?.classList.toggle('on',approveState);
-  const l=g('app-lbl');if(l){l.textContent=approveState?'Approved':'Pending';l.style.color=approveState?'var(--su)':'var(--t3)';}
+  const l=g('app-lbl');
+  if(l){l.textContent=approveState?'Approved':'Pending';l.style.color=approveState?'var(--su)':'var(--t3)';}
+  // Nudge: remind about JIRA + invoice for audit
+  if(approveState){
+    const hasJira=!!(gv('m-jira'));
+    const hasInv=existInvNames.length>0||pendingInvs.length>0;
+    if(!hasJira||!hasInv){
+      const missing=[];
+      if(!hasJira) missing.push('JIRA ticket');
+      if(!hasInv) missing.push('invoice');
+      toast(`Approved — please add ${missing.join(' & ')} for audit compliance`,'info');
+    }
+  }
 }
 function rmExInv(i){existInvNames.splice(i,1);g(`einv-${i}`)?.remove();}
 function handleInv(inp){
@@ -1673,17 +1681,24 @@ function importVendorFile(inp){
 async function renderRecon(){
   g('page').innerHTML='<div class="spinner"></div>';
   try{
+    let reconCountry = window._reconCountry || '';
     const tb=`<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px">
-      <div style="display:flex;align-items:center;gap:8px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <div style="font-size:16px;font-weight:600">&#x2696; Reconciliation</div>
+        <select onchange="window._reconCountry=this.value;renderRecon()" style="padding:6px 24px 6px 10px;font-size:12px;border:1px solid var(--b);border-radius:var(--r);appearance:none;cursor:pointer;outline:none;${SBG}">
+          <option value="" ${reconCountry===''?'selected':''}>All Markets</option>
+          ${MARKETS.map(m=>`<option value="${m}" ${m===reconCountry?'selected':''}>${m}</option>`).join('')}
+        </select>
         <div class="qtabs">${QS.map(q=>`<button class="qtab ${q===quarter?'active':''}" onclick="quarter='${q}';renderRecon()">${q}</button>`).join('')}</div>
       </div>
       <a href="/api/export" class="btn btn-e btn-sm">&#x2193; Export</a>
     </div>`;
 
-    const data = await api(`/api/reconciliation/${quarter}`);
+    let data = await api(`/api/reconciliation/${quarter}`);
+    // Filter by country if selected
+    if(reconCountry) data = data.filter(r=>r.country===reconCountry);
     if(!data.length){
-      g('page').innerHTML=tb+`<div style="text-align:center;padding:48px;color:var(--t3)">No data for ${quarter}.</div>`;
+      g('page').innerHTML=tb+`<div style="text-align:center;padding:48px;color:var(--t3)">No data for ${reconCountry||'any market'} in ${quarter}.</div>`;
       return;
     }
 

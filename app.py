@@ -508,32 +508,45 @@ def api_import_vendors():
         else:
             content = f.read().decode('utf-8-sig')
             lines = [l.strip() for l in content.splitlines() if l.strip()]
-            first = lines[0].lower() if lines else ''
+            if not lines:
+                return jsonify({"error": "Empty file"}), 400
+            first = lines[0].lower()
             has_hdr = 'name' in first or 'vendor' in first
             data_lines = lines[1:] if has_hdr else lines
             import csv as _csv
             for row in _csv.reader(data_lines):
                 if row and row[0].strip(): parsed.append(row)
     except Exception as e:
+        import traceback; traceback.print_exc()
         return jsonify({"error":f"Parse failed: {str(e)}"}), 400
 
-    ws = get_sheet(TAB_VENDORS)
-    existing = [v["name"].lower() for v in safe_get_records(ws, TAB_VENDORS)]
-    now = datetime.utcnow().isoformat()
-    saved, skipped = 0, 0
-    saved_rows = []
-    for row in parsed:
-        name = row[0].strip()
-        vendor_country = row[1].strip().upper() if len(row)>1 and row[1].strip() else "GLOBAL"
-        if name.lower() in existing:
-            skipped += 1; continue
-        vid = "v_" + str(uuid.uuid4())[:8]
-        ws.append_row([vid, name, vendor_country, session["user"], now])
-        existing.append(name.lower())
-        saved += 1
-        saved_rows.append({"name":name, "country":vendor_country})
-    invalidate_cache(TAB_VENDORS)
-    return jsonify({"ok":True, "saved":saved, "skipped":skipped, "rows":saved_rows})
+    if not parsed:
+        return jsonify({"error": "No valid rows found in file"}), 400
+
+    try:
+        ws = get_sheet(TAB_VENDORS)
+        try:
+            existing = [str(v.get("name","")).lower() for v in safe_get_records(ws, TAB_VENDORS)]
+        except Exception:
+            existing = []
+        now = datetime.utcnow().isoformat()
+        saved, skipped = 0, 0
+        saved_rows = []
+        for row in parsed:
+            name = row[0].strip()
+            vendor_country = row[1].strip().upper() if len(row)>1 and row[1].strip() else "GLOBAL"
+            if name.lower() in existing:
+                skipped += 1; continue
+            vid = "v_" + str(uuid.uuid4())[:8]
+            ws.append_row([vid, name, vendor_country, session["user"], now])
+            existing.append(name.lower())
+            saved += 1
+            saved_rows.append({"name":name, "country":vendor_country})
+        invalidate_cache(TAB_VENDORS)
+        return jsonify({"ok":True, "saved":saved, "skipped":skipped, "rows":saved_rows})
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"error": f"Import failed: {str(e)}"}), 500
 
 @app.route("/api/budget/<country>/<quarter>", methods=["POST"])
 @require_login
