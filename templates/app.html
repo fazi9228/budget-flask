@@ -1717,55 +1717,69 @@ async function renderRecon(){
       <div class="stat"><div class="stat-l">Confirmed</div><div class="stat-v" style="color:var(--in)">$${fmt(totCon)}</div></div>
       <div class="stat"><div class="stat-l">Actual</div><div class="stat-v" style="color:var(--su)">$${fmt(totAct)}</div></div>
       <div class="stat"><div class="stat-l">Variance</div><div class="stat-v" style="color:${varClr}">${totVar>0?'+':''}$${fmt(totVar)}</div></div>
-      <div class="stat"><div class="stat-l">&#x26A0; Flags</div><div class="stat-v" style="color:${totFlags?'var(--wa)':'var(--su)'}">${totFlags}</div></div>
     </div>`;
 
     // Expandable country cards
+    // Status helper: Completed if actual>0, In Progress if confirmed>0, else Planned
+    const rcStatus=(pln,con,act)=>{
+      if(act>0) return '<span class="badge b-green">Completed</span>';
+      if(con>0) return '<span class="badge b-blue">In Progress</span>';
+      if(pln>0) return '<span class="badge b-gold">Planned</span>';
+      return '<span class="badge b-gray">—</span>';
+    };
+    // Variance color: red if over budget (actual > planned), green if under/equal
+    const rcVarClr=(v)=>v>0?'var(--da)':'var(--su)';
+
     let cards=data.map(r=>{
       const v=r.var_plan_vs_actual;
-      const vc=v===0?'var(--su)':v>0?'var(--da)':'var(--su)';
+      const vc=rcVarClr(v);
       const fl=r.flags;
-      const flags=[];
-      if(fl.no_actual>0) flags.push(`<span class="badge b-amber">${fl.no_actual} no actual</span>`);
-      if(fl.no_jira>0) flags.push(`<span class="badge b-amber">${fl.no_jira} no JIRA</span>`);
-      if(fl.no_invoice>0) flags.push(`<span class="badge b-red">${fl.no_invoice} no invoice</span>`);
+      const notes=[];
+      if(fl.no_jira>0) notes.push(`${fl.no_jira} no JIRA`);
+      if(fl.no_invoice>0) notes.push(`${fl.no_invoice} no invoice`);
 
       // Channel rows (expandable)
       let chHtml='';
       (r.channels_data||[]).forEach(ch=>{
         const chVar=ch.actual-ch.planned;
-        const chVc=chVar===0?'var(--t3)':chVar>0?'var(--da)':'var(--su)';
+        const chNotes=[];
+        // Count items missing jira/invoice in this channel
+        const allChItems=[...(ch.unassigned||[])];
+        (ch.activities||[]).forEach(a=>allChItems.push(...(a.items||[])));
+        const chNoJira=allChItems.filter(it=>!it.jira).length;
+        const chNoInv=allChItems.filter(it=>it.actual>0&&!it.jira).length;
 
         // Activities within channel
         let actHtml='';
         (ch.activities||[]).forEach(act=>{
           const aVar=act.actual-act.planned;
-          const aVc=aVar===0?'var(--t3)':aVar>0?'var(--da)':'var(--su)';
           // Line items
           const itemRows=act.items.map(it=>{
             const iv=it.actual-it.planned;
-            const ivc=iv===0?'var(--t3)':iv>0?'var(--da)':'var(--su)';
+            const itNotes=[];
+            if(!it.jira) itNotes.push('No JIRA');
+            if(it.actual>0&&!it.approved) itNotes.push('No invoice');
             return `<tr>
               <td style="padding-left:56px;font-size:11px"><span style="color:var(--t3)">${mLbl(it.month)}</span> ${esc(it.description||'')}</td>
               <td style="font-size:11px;color:var(--t2)">${esc(it.vendor||'—')}</td>
-              <td style="font-size:10px">${it.jira?`<span class="mono" style="color:var(--in)">${esc(it.jira)}</span>`:''}${it.approved?' <span class="badge b-green" style="font-size:9px">&#x2713;</span>':''}</td>
+              <td>${rcStatus(it.planned,it.confirmed,it.actual)}</td>
               <td class="mono" style="text-align:right;color:var(--go);font-size:11px">$${fmt(it.planned)}</td>
               <td class="mono" style="text-align:right;color:var(--in);font-size:11px">$${fmt(it.confirmed)}</td>
               <td class="mono" style="text-align:right;color:var(--su);font-size:11px">$${fmt(it.actual)}</td>
-              <td class="mono" style="text-align:right;color:${ivc};font-size:11px">${iv!==0?(iv>0?'+':'')+('$'+fmt(iv)):'—'}</td>
-              <td></td>
+              <td class="mono" style="text-align:right;color:${rcVarClr(iv)};font-size:11px">${iv!==0?(iv>0?'+':'')+('$'+fmt(iv)):'—'}</td>
+              <td style="font-size:10px;color:var(--wa)">${itNotes.join(' · ')||''}</td>
             </tr>`;
           }).join('');
 
           actHtml+=`<tr class="rc-act rc-act-${ch.id}" style="display:none;cursor:pointer;background:var(--s2)" onclick="document.querySelectorAll('.rc-item-${act.id}').forEach(el=>el.style.display=el.style.display==='none'?'':'none')">
             <td style="padding-left:40px;font-weight:500;font-size:12px">&#x2514; ${esc(act.name)} <span style="font-size:10px;color:var(--t3)">&#x25BC;</span></td>
             <td></td>
-            <td><span class="badge b-gray" style="font-size:10px">${act.entries}</span></td>
+            <td>${rcStatus(act.planned,act.confirmed,act.actual)}</td>
             <td class="mono" style="text-align:right;color:var(--go);font-size:12px">$${fmt(act.planned)}</td>
             <td class="mono" style="text-align:right;color:var(--in);font-size:12px">$${fmt(act.confirmed)}</td>
             <td class="mono" style="text-align:right;color:var(--su);font-size:12px">$${fmt(act.actual)}</td>
-            <td class="mono" style="text-align:right;color:${aVc};font-size:12px">${aVar!==0?(aVar>0?'+':'')+('$'+fmt(aVar)):'—'}</td>
-            <td style="text-align:center;font-size:11px">${act.entries}</td>
+            <td class="mono" style="text-align:right;color:${rcVarClr(aVar)};font-size:12px">${aVar!==0?(aVar>0?'+':'')+('$'+fmt(aVar)):'—'}</td>
+            <td></td>
           </tr>${itemRows.replace(/class=""/g,'').split('</tr>').map((tr,i)=>tr?tr.replace('<tr','<tr class="rc-item-'+act.id+'" style="display:none"'):'').join('</tr>')}`;
         });
 
@@ -1774,16 +1788,18 @@ async function renderRecon(){
         if(ch.unassigned&&ch.unassigned.length>0){
           unassHtml=ch.unassigned.map(it=>{
             const iv=it.actual-it.planned;
-            const ivc=iv===0?'var(--t3)':iv>0?'var(--da)':'var(--su)';
+            const itNotes=[];
+            if(!it.jira) itNotes.push('No JIRA');
+            if(it.actual>0&&!it.approved) itNotes.push('No invoice');
             return `<tr class="rc-act rc-act-${ch.id}" style="display:none">
               <td style="padding-left:40px;font-size:11px;font-style:italic"><span style="color:var(--t3)">${mLbl(it.month)}</span> ${esc(it.description||'—')}</td>
               <td style="font-size:11px;color:var(--t2)">${esc(it.vendor||'—')}</td>
-              <td style="font-size:10px">${it.jira?`<span class="mono" style="color:var(--in)">${esc(it.jira)}</span>`:''}</td>
+              <td>${rcStatus(it.planned,it.confirmed,it.actual)}</td>
               <td class="mono" style="text-align:right;color:var(--go);font-size:11px">$${fmt(it.planned)}</td>
               <td class="mono" style="text-align:right;color:var(--in);font-size:11px">$${fmt(it.confirmed)}</td>
               <td class="mono" style="text-align:right;color:var(--su);font-size:11px">$${fmt(it.actual)}</td>
-              <td class="mono" style="text-align:right;color:${ivc};font-size:11px">${iv!==0?(iv>0?'+':'')+('$'+fmt(iv)):'—'}</td>
-              <td></td>
+              <td class="mono" style="text-align:right;color:${rcVarClr(iv)};font-size:11px">${iv!==0?(iv>0?'+':'')+('$'+fmt(iv)):'—'}</td>
+              <td style="font-size:10px;color:var(--wa)">${itNotes.join(' · ')||''}</td>
             </tr>`;
           }).join('');
         }
@@ -1791,44 +1807,45 @@ async function renderRecon(){
         chHtml+=`<tr class="rc-ch rc-ch-${r.country}" style="display:none;cursor:pointer;background:var(--s2)" onclick="document.querySelectorAll('.rc-act-${ch.id}').forEach(el=>el.style.display=el.style.display==='none'?'':'none')">
           <td style="padding-left:24px;font-weight:500;font-size:12.5px">${esc(ch.name)} <span style="font-size:10px;color:var(--t3);font-weight:400">&#x25BC;</span></td>
           <td class="mono" style="text-align:right;font-size:11px;color:var(--ac)">$${fmt(ch.budget)}</td>
-          <td><span class="badge b-gray" style="font-size:10px">${ch.entries}</span></td>
+          <td>${rcStatus(ch.planned,ch.confirmed,ch.actual)}</td>
           <td class="mono" style="text-align:right;color:var(--go)">$${fmt(ch.planned)}</td>
           <td class="mono" style="text-align:right;color:var(--in)">$${fmt(ch.confirmed)}</td>
           <td class="mono" style="text-align:right;color:var(--su)">$${fmt(ch.actual)}</td>
-          <td class="mono" style="text-align:right;color:${chVc}">${chVar!==0?(chVar>0?'+':'')+('$'+fmt(chVar)):'—'}</td>
-          <td style="text-align:center">${ch.entries}</td>
+          <td class="mono" style="text-align:right;color:${rcVarClr(chVar)}">${chVar!==0?(chVar>0?'+':'')+('$'+fmt(chVar)):'—'}</td>
+          <td></td>
         </tr>${actHtml}${unassHtml}`;
       });
 
       return `<tr style="cursor:pointer" onclick="document.querySelectorAll('.rc-ch-${r.country}').forEach(el=>el.style.display=el.style.display==='none'?'':'none')">
         <td style="font-weight:600">${esc(r.country)} <span style="font-size:10px;color:var(--t3);font-weight:400">&#x25BC;</span></td>
         <td class="mono" style="text-align:right">$${fmt(r.plan_budget)}</td>
-        <td style="display:flex;gap:3px;flex-wrap:wrap">${flags.join('')||'<span class="badge b-green">&#x2713;</span>'}</td>
+        <td>${rcStatus(r.sum_planned,r.sum_confirmed,r.sum_actual)}</td>
         <td class="mono" style="text-align:right;color:var(--go)">$${fmt(r.sum_planned)}</td>
         <td class="mono" style="text-align:right;color:var(--in)">$${fmt(r.sum_confirmed)}</td>
         <td class="mono" style="text-align:right;color:var(--su)">$${fmt(r.sum_actual)}</td>
         <td class="mono" style="text-align:right;color:${vc}">${v>0?'+':''}$${fmt(v)}</td>
-        <td style="text-align:center">${r.entries}</td>
+        <td style="font-size:10px;color:var(--wa)">${notes.join(' · ')||''}</td>
       </tr>${chHtml}`;
     }).join('');
 
     let tbl=`<div class="card" style="overflow:hidden">
       <div class="tbl-wrap"><table>
         <thead><tr>
-          <th style="width:28%">Market / Channel / Activity</th><th style="text-align:right">Budget</th><th>Status</th>
+          <th style="width:24%">Market / Channel / Activity</th><th style="text-align:right">Budget</th><th>Status</th>
           <th style="text-align:right">Planned</th><th style="text-align:right">Confirmed</th>
           <th style="text-align:right">Actual</th><th style="text-align:right">Variance</th>
-          <th style="text-align:center">Items</th>
+          <th>Notes</th>
         </tr></thead>
         <tbody>${cards}</tbody>
         <tfoot><tr>
           <td style="font-weight:600">${quarter} Total</td>
-          <td class="mono" style="text-align:right;font-weight:600">$${fmt(totBud)}</td><td></td>
+          <td class="mono" style="text-align:right;font-weight:600">$${fmt(totBud)}</td>
+          <td>${rcStatus(totPln,totCon,totAct)}</td>
           <td class="mono" style="text-align:right;font-weight:600;color:var(--go)">$${fmt(totPln)}</td>
           <td class="mono" style="text-align:right;font-weight:600;color:var(--in)">$${fmt(totCon)}</td>
           <td class="mono" style="text-align:right;font-weight:600;color:var(--su)">$${fmt(totAct)}</td>
           <td class="mono" style="text-align:right;font-weight:600;color:${varClr}">${totVar>0?'+':''}$${fmt(totVar)}</td>
-          <td style="text-align:center;font-weight:600">${data.reduce((s,r)=>s+r.entries,0)}</td>
+          <td></td>
         </tr></tfoot>
       </table></div>
     </div>
