@@ -217,8 +217,8 @@ tfoot td{background:var(--s2);font-weight:600;font-size:12px}
 const USER    = {{ user|tojson }};
 const USERNAME= {{ username|default("")|tojson }};
 const IS_ADMIN= {{ is_admin|tojson }};
-const IS_EDITOR= {{ is_editor|default(false)|tojson }};
-const ROLE    = {{ role|default("country")|tojson }};
+const IS_EDITOR= {{ is_editor|tojson }};
+const ROLE    = {{ role|tojson }};
 const MARKETS = {{ markets|tojson }};
 const QS      = ["Q1","Q2","Q3","Q4"];
 const MONTHS  = [
@@ -289,7 +289,7 @@ function applyMapping(name){
 function initNav(){
   g('nav').innerHTML=`
     <button class="nav-btn active" id="nav-dash" onclick="sv('dashboard')">&#x1F4CA; Dashboard</button>
-    ${(IS_ADMIN||IS_EDITOR)?`<button class="nav-btn" id="nav-recon" onclick="sv('recon')">&#x2696; Reconciliation</button>`:''}
+    ${(ROLE!=='country')?`<button class="nav-btn" id="nav-recon" onclick="sv('recon')">&#x2696; Reconciliation</button>`:''}
     ${IS_ADMIN?`<button class="nav-btn" id="nav-cfg" onclick="sv('config')">&#x2699; Budget Config</button>`:''}`;
 }
 function sv(v){
@@ -375,7 +375,7 @@ function buildDash(){
   // ── toolbar ──
   let tb = `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px">
     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">`;
-  if(IS_ADMIN||IS_EDITOR) tb+=`<select onchange="country=this.value;renderDash()" style="padding:6px 24px 6px 10px;font-size:12px;border:1px solid var(--b);border-radius:var(--r);appearance:none;cursor:pointer;outline:none;${SBG}">${MARKETS.map(m=>`<option value="${m}" ${m===country?'selected':''}>${m}</option>`).join('')}</select>`;
+  if(ROLE!=='country') tb+=`<select onchange="country=this.value;renderDash()" style="padding:6px 24px 6px 10px;font-size:12px;border:1px solid var(--b);border-radius:var(--r);appearance:none;cursor:pointer;outline:none;${SBG}">${MARKETS.map(m=>`<option value="${m}" ${m===country?'selected':''}>${m}</option>`).join('')}</select>`;
   else tb+=`<span style="font-weight:600;font-size:13px;padding:6px 0">${country}</span>`;
   tb+=`<div class="qtabs">${QS.map(q=>`<button class="qtab ${q===quarter?'active':''}" onclick="quarter='${q}';renderDash()">${q}</button>`).join('')}</div></div>
     <div style="display:flex;gap:8px">
@@ -466,7 +466,7 @@ function buildDash(){
             </div>
             <div style="display:flex;gap:4px" onclick="event.stopPropagation()">
               <button class="btn btn-p btn-xs" onclick="openEM(null,'${ch.id}','${act.id}')">+ Add</button>
-              ${IS_ADMIN?`<button class="btn btn-g btn-xs" onclick="openAM('${act.id}','${esc(act.name)}','${ch.id}')">&#x270E;</button>
+              ${(ROLE!=='country')?`<button class="btn btn-g btn-xs" onclick="openAM('${act.id}','${esc(act.name)}','${ch.id}')">&#x270E;</button>
               <button class="btn btn-d btn-xs" onclick="deleteAct('${act.id}')">&#x2715;</button>`:''}
             </div>
           </div>
@@ -510,7 +510,7 @@ function buildDash(){
             </div>
           </div>
           <div style="display:flex;gap:4px" onclick="event.stopPropagation()">
-            ${IS_ADMIN?`<button class="btn btn-g btn-xs" onclick="openAM(null,'','${ch.id}')">+ Activity</button>`:''}
+            ${(ROLE!=='country')?`<button class="btn btn-g btn-xs" onclick="openAM(null,'','${ch.id}')">+ Activity</button>`:''}
             <button class="btn btn-p btn-xs" onclick="openEM(null,'${ch.id}',null)">+ Add</button>
           </div>
         </div>
