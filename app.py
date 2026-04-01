@@ -27,7 +27,7 @@ SHEET_ID             = os.environ.get("SHEET_ID", "13TMeZ3pqdUQr2WRMG5G70xchZKfm
 PM_SHEET_ID          = os.environ.get("PM_SHEET_ID", "1_gqrbmEvmVYu3_Bu5IrJa2zKE9DWcZZQEmMvYnfuR4I")
 ADMIN_MARKET         = "APAC"
 
-MARKETS  = ["CN","HKG","ID","IN","MN","MY","PH","SG","TH","TW","VN","TW/SG/MY/MN"]
+MARKETS  = ["CN","HKG","ID","IN","MN","MY","PH","SG","TH","TW","VN","APAC"]
 QUARTERS = ["Q1","Q2","Q3","Q4"]
 
 # Invoice storage on disk
@@ -2012,6 +2012,12 @@ def api_pm_auto_sync():
         existing_activities = safe_get_records(ws_activities, TAB_ACTIVITIES)
         now = datetime.utcnow().isoformat()
 
+        # Only sync countries that have a budget configured
+        all_budgets_list = get_records_cached(TAB_BUDGETS)
+        budget_countries = set(str(b.get("country","")) for b in all_budgets_list if float(b.get("total_budget") or 0) > 0)
+        # Also include countries in MARKETS as valid
+        valid_countries = budget_countries | set(MARKETS)
+
         # Build lookup for existing PM entries: country|channel_group|month → entry row index + data
         existing_pm = {}
         for idx, e in enumerate(existing_entries):
@@ -2051,6 +2057,11 @@ def api_pm_auto_sync():
             parts = agg_key.split("|")
             country, channel_group, month_key, quarter = parts[0], parts[1], parts[2], parts[3]
             spend = round(vals["spend"], 2)
+
+            # Skip countries not in the tracker
+            if country not in valid_countries:
+                skipped += 1
+                continue
 
             mapping = PM_CHANNEL_MAP.get(channel_group, PM_CHANNEL_MAP.get("Others", {}))
             mapped_channel = mapping.get("channel_name", "Performance Marketing (PM)")

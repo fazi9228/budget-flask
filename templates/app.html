@@ -1305,10 +1305,18 @@ async function renderCfg(){
     // Budget + Channels
     html+=`<div class="card" style="padding:18px;margin-bottom:14px">
       <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--t3);margin-bottom:8px">Set Country Budget</div>
-      <div style="display:flex;align-items:flex-end;gap:10px">
-        <div class="field" style="max-width:280px"><label>${country} · ${quarter} Total Budget (USD)</label>
+      <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
+        <div class="field" style="max-width:280px"><label>${country} · ${quarter} Total Budget (AUD)</label>
           <input type="number" id="cfg-tot" min="0" step="1000" value="${budgetData.total||''}"></div>
-        <button class="btn btn-p btn-sm" onclick="saveTot()">Save</button>
+        <button class="btn btn-p btn-sm" onclick="saveTot()">Save Budget</button>
+      </div>
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--b)">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--t3);margin-bottom:8px">Quick Setup — Set Budget for All Quarters</div>
+        <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
+          <div class="field" style="max-width:280px"><label>${country} Annual Budget (AUD) — split equally across Q1–Q4</label>
+            <input type="number" id="cfg-annual" min="0" step="1000" placeholder="e.g. 600000"></div>
+          <button class="btn btn-g btn-sm" onclick="saveAnnualBudget()">Apply to All Quarters</button>
+        </div>
       </div>
     </div>`;
 
@@ -1338,6 +1346,34 @@ async function renderCfg(){
       <button class="btn btn-g btn-sm" onclick="openCM(null,'',0)">+ Add Channel</button>
     </div>`;
 
+    // Bulk Import Section
+    html+=`<div class="card" style="padding:18px;margin-bottom:14px">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--t3);margin-bottom:12px">Bulk Import</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+
+        <div style="background:var(--s2);border-radius:var(--r);padding:14px">
+          <div style="font-weight:600;font-size:12px;margin-bottom:6px">Country Budgets</div>
+          <div style="font-size:11px;color:var(--t3);margin-bottom:10px">Upload CSV with columns: Country, Quarter, Total Budget (USD). Updates existing budgets or creates new ones.</div>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+            <label class="btn btn-p btn-sm" style="cursor:pointer"><span>&#x2191; Upload CSV</span><input type="file" accept=".csv,.xlsx,.xls" style="display:none" onchange="uploadBudgets(this)"></label>
+            <a href="/api/budget_template" class="btn btn-g btn-sm">&#x2193; Template</a>
+          </div>
+          <div id="cfg-bud-result" style="font-size:11px"></div>
+        </div>
+
+        <div style="background:var(--s2);border-radius:var(--r);padding:14px">
+          <div style="font-weight:600;font-size:12px;margin-bottom:6px">Channel Budgets</div>
+          <div style="font-size:11px;color:var(--t3);margin-bottom:10px">Upload CSV with columns: Country, Quarter, Channel Name, Budget (USD). Skips duplicates.</div>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+            <label class="btn btn-p btn-sm" style="cursor:pointer"><span>&#x2191; Upload CSV</span><input type="file" accept=".csv,.xlsx,.xls" style="display:none" onchange="uploadChannels(this)"></label>
+            <a href="/api/channel_template" class="btn btn-g btn-sm">&#x2193; Template</a>
+          </div>
+          <div id="cfg-ch-result" style="font-size:11px"></div>
+        </div>
+
+      </div>
+    </div>`;
+
     // Category Management
     html+=`<div class="card" style="padding:18px;margin-bottom:14px">
       <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--t3);margin-bottom:6px">Category Management</div>
@@ -1359,6 +1395,66 @@ async function saveTot(){
   budgetData.total=total;_cache.budget=budgetData;
   toast('Budget saved ✓','ok');
   api(`/api/budget/${country}/${quarter}`,{method:'POST',body:JSON.stringify({total})}).catch(()=>toast('Sync error','err'));
+}
+
+async function saveAnnualBudget(){
+  const annual=parseFloat(g('cfg-annual')?.value)||0;
+  if(!annual){toast('Enter an annual budget','err');return;}
+  const perQ=Math.round(annual/4);
+  toast('Setting '+country+' budget to $'+fmt(perQ)+' per quarter...','info');
+  try{
+    for(const q of QS){
+      await api('/api/budget/'+country+'/'+q,{method:'POST',body:JSON.stringify({total:perQ})});
+    }
+    budgetData.total=perQ;_cache.budget=budgetData;
+    g('cfg-tot').value=perQ;
+    toast(country+' budget set: $'+fmt(perQ)+' × 4 quarters = $'+fmt(annual),'ok');
+  }catch(e){toast(e.message||'Failed','err');}
+}
+
+async function uploadBudgets(inp){
+  if(!inp.files.length) return;
+  const fd=new FormData();
+  fd.append('file',inp.files[0]);
+  const res=g('cfg-bud-result');
+  if(res) res.innerHTML='<span style="color:var(--in)">Uploading...</span>';
+  try{
+    const r=await fetch('/api/import/budgets',{method:'POST',body:fd});
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.error||'Upload failed');
+    if(res) res.innerHTML='<span style="color:var(--su)">'+d.saved+' budgets saved'+(d.skipped>0?' · '+d.skipped+' skipped':'')+'</span>';
+    invalidateCache();
+    toast(d.saved+' country budgets imported','ok');
+    setTimeout(function(){renderCfg()},500);
+  }catch(e){
+    if(res) res.innerHTML='<span style="color:var(--da)">'+esc(e.message)+'</span>';
+    toast(e.message||'Upload failed','err');
+  }
+  inp.value='';
+}
+
+async function uploadChannels(inp){
+  if(!inp.files.length) return;
+  const fd=new FormData();
+  fd.append('file',inp.files[0]);
+  const res=g('cfg-ch-result');
+  if(res) res.innerHTML='<span style="color:var(--in)">Uploading...</span>';
+  try{
+    const r=await fetch('/api/import/channels',{method:'POST',body:fd});
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.error||'Upload failed');
+    var msg=d.saved+' channels saved';
+    if(d.skipped_dups>0) msg+=' · '+d.skipped_dups+' duplicates skipped';
+    if(d.skipped_invalid>0) msg+=' · '+d.skipped_invalid+' invalid rows';
+    if(res) res.innerHTML='<span style="color:var(--su)">'+msg+'</span>';
+    invalidateCache();
+    toast(msg,'ok');
+    setTimeout(function(){renderCfg()},500);
+  }catch(e){
+    if(res) res.innerHTML='<span style="color:var(--da)">'+esc(e.message)+'</span>';
+    toast(e.message||'Upload failed','err');
+  }
+  inp.value='';
 }
 
 // Category Editor
