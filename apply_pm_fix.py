@@ -317,7 +317,7 @@ function applyMapping(name){
 function initNav(){
   g('nav').innerHTML=`
     <button class="nav-btn active" id="nav-dash" onclick="sv('dashboard')">&#x1F4CA; Dashboard</button>
-    <button class="nav-btn" id="nav-recon" onclick="sv('recon')">&#x2696; Reconciliation</button>
+    ${(ROLE!=='country')?`<button class="nav-btn" id="nav-recon" onclick="sv('recon')">&#x2696; Reconciliation</button>`:''}
     ${IS_ADMIN?`<button class="nav-btn" id="nav-pm" onclick="sv('pm')">&#x1F517; PM Sync</button>`:''}
     ${IS_ADMIN?`<button class="nav-btn" id="nav-cfg" onclick="sv('config')">&#x2699; Config</button>`:''}
     <button class="nav-btn" id="nav-analytics" onclick="sv('analytics')">&#x1F4C8; Analytics</button>`;
@@ -909,156 +909,63 @@ async function renderRecon(){
 function buildReconPage(data){
   const totBud=data.reduce((s,r)=>s+r.plan_budget,0);
   const totPln=data.reduce((s,r)=>s+r.sum_planned,0);
-  const totCon=data.reduce((s,r)=>s+r.sum_confirmed,0);
   const totAct=data.reduce((s,r)=>s+r.sum_actual,0);
   const totVar=totAct-totPln;
   const varClr=totVar>0?'var(--da)':'var(--su)';
-  const totEntries=data.reduce((s,r)=>s+r.entries,0);
 
-  // Compliance totals
-  const totNoJira=data.reduce((s,r)=>s+(r.flags?.no_jira||0),0);
-  const totNoInv=data.reduce((s,r)=>s+(r.flags?.no_invoice||0),0);
-  const totNoActual=data.reduce((s,r)=>s+(r.flags?.no_actual||0),0);
-  const pctJira=totEntries>0?Math.round((totEntries-totNoJira)/totEntries*100):0;
-  const pctInv=totEntries>0?Math.round((totEntries-totNoInv)/totEntries*100):0;
-
+  // Build filter options
   const reconCountries = data.map(r=>r.country).sort();
 
   let html=`<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px">
-    <div style="display:flex;align-items:center;gap:10px">
-      <div style="font-size:16px;font-weight:600">&#x2696; Reconciliation</div>
-      <span style="font-size:11px;color:var(--t3);background:var(--s3);padding:3px 10px;border-radius:12px">${quarter} Review</span>
-    </div>
+    <div style="font-size:16px;font-weight:600">&#x2696; Reconciliation</div>
     <div style="display:flex;gap:8px;align-items:center">
       <div class="qtabs">${QS.map(q=>`<button class="qtab ${q===quarter?'active':''}" onclick="quarter='${q}';renderRecon()">${q}</button>`).join('')}</div>
       <a href="/api/export" class="btn btn-e btn-sm">&#x2193; Export</a>
-      <a href="/api/export/xlsx" class="btn btn-e btn-sm" style="background:#E2EFDA;color:#1F4E39;border-color:#A8D08D">&#x2193; Excel</a>
     </div>
   </div>`;
 
   // Filter bar
-  if(!data.length){
-    html+=`<div style="text-align:center;padding:48px;color:var(--t3)">
-      <div style="font-size:14px;margin-bottom:8px">No data for ${quarter}</div>
-      <div style="font-size:12px">Try selecting a different quarter, or check that budgets and entries have been configured.</div>
-    </div>`;
-    g('page').innerHTML=html;return;
-  }
-
-  // Filter bar (only shown when there is data)
   html+=`<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">
     ${ddFilter('rc_co','Country',reconCountries,function(){reconApplyFilters()})}
     <button class="btn btn-g btn-xs" onclick="ddClearAll();reconApplyFilters()">Clear</button>
     <span id="rc-f-info" style="font-size:10px;color:var(--t3)"></span>
   </div>`;
 
-  // ── COMPLIANCE SCORECARD ──
-  html+=`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">
-    <div class="card" style="padding:14px;border-left:4px solid ${pctJira>=80?'var(--su)':pctJira>=50?'var(--wa)':'var(--da)'}">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-        <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--t3);letter-spacing:.07em">JIRA Compliance</div>
-        <span class="badge ${pctJira>=80?'b-green':pctJira>=50?'b-amber':'b-red'}">${pctJira}%</span>
-      </div>
-      <div class="bbar-wrap" style="height:6px"><div class="bbar" style="width:${pctJira}%;background:${pctJira>=80?'var(--su)':pctJira>=50?'var(--wa)':'var(--da)'}"></div></div>
-      <div style="font-size:11px;color:var(--t3);margin-top:5px">${totNoJira} of ${totEntries} entries missing JIRA link</div>
-    </div>
-    <div class="card" style="padding:14px;border-left:4px solid ${pctInv>=80?'var(--su)':pctInv>=50?'var(--wa)':'var(--da)'}">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-        <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--t3);letter-spacing:.07em">Invoice Compliance</div>
-        <span class="badge ${pctInv>=80?'b-green':pctInv>=50?'b-amber':'b-red'}">${pctInv}%</span>
-      </div>
-      <div class="bbar-wrap" style="height:6px"><div class="bbar" style="width:${pctInv}%;background:${pctInv>=80?'var(--su)':pctInv>=50?'var(--wa)':'var(--da)'}"></div></div>
-      <div style="font-size:11px;color:var(--t3);margin-top:5px">${totNoInv} entries with actual spend but no invoice</div>
-    </div>
-    <div class="card" style="padding:14px;border-left:4px solid var(--in)">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-        <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--t3);letter-spacing:.07em">Budget Status</div>
-        <span class="badge ${totVar>0?'b-red':'b-green'}">${totVar>0?'Over':'Under'}</span>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px">
-        <div><div style="font-size:10px;color:var(--t3)">Budget</div><div class="mono" style="font-size:15px;font-weight:500">$${fmt(totBud)}</div></div>
-        <div><div style="font-size:10px;color:var(--t3)">Actual</div><div class="mono" style="font-size:15px;font-weight:500;color:var(--su)">$${fmt(totAct)}</div></div>
-      </div>
-      <div style="font-size:11px;color:${varClr};margin-top:5px;font-weight:500">Variance: ${totVar>0?'+':''}$${fmt(totVar)} (${totBud>0?((totAct/totBud*100).toFixed(1)):'0'}% utilized)</div>
-    </div>
+  html+=`<div class="stats-row"><div class="stat"><div class="stat-l">Budget</div><div class="stat-v" id="rc-s-bud">$${fmt(totBud)}</div></div>
+    <div class="stat"><div class="stat-l">Planned <span class="info-btn">i<span class="info-tip">Approved amount for the quarter</span></span></div><div class="stat-v" style="color:var(--go)" id="rc-s-pln">$${fmt(totPln)}</div></div>
+    <div class="stat"><div class="stat-l">Actual <span class="info-btn">i<span class="info-tip">Actual invoiced/reconciled spend</span></span></div><div class="stat-v" style="color:var(--su)" id="rc-s-act">$${fmt(totAct)}</div></div>
+    <div class="stat"><div class="stat-l">Variance</div><div class="stat-v" style="color:${varClr}" id="rc-s-var">${totVar>0?'+':''}$${fmt(totVar)}</div></div>
   </div>`;
 
-  // ── ALL-MARKETS COMPARISON TABLE ──
-  html+=`<div class="card" style="overflow:hidden;margin-bottom:14px">
-    <div style="padding:12px 16px;border-bottom:1px solid var(--b);display:flex;align-items:center;justify-content:space-between">
-      <div style="font-weight:600;font-size:13px">Market Comparison - ${quarter}</div>
-      <div style="font-size:11px;color:var(--t3)">${data.length} markets &middot; ${totEntries} entries</div>
-    </div>
-    <div class="tbl-wrap"><table>
-      <thead><tr>
-        <th>Market</th><th style="text-align:right">Budget</th><th style="text-align:right">Planned</th>
-        <th style="text-align:right">Actual</th><th style="text-align:right">Variance</th>
-        <th style="text-align:center">Util %</th><th style="text-align:center">Entries</th>
-        <th style="text-align:center">JIRA</th><th style="text-align:center">Invoice</th>
-        <th>Health</th>
-      </tr></thead>
-      <tbody>${data.map(r=>{
-        const v=r.var_plan_vs_actual;const vc=v>0?'var(--da)':'var(--su)';
-        const util=r.plan_budget>0?(r.sum_actual/r.plan_budget*100).toFixed(0):'--';
-        const fl=r.flags;
-        const jiraPct=r.entries>0?Math.round((r.entries-fl.no_jira)/r.entries*100):100;
-        const invPct=r.entries>0?Math.round((r.entries-fl.no_invoice)/r.entries*100):100;
-        // Health: green if <90% budget and >70% compliance, amber if borderline, red if over or low compliance
-        const overBudget=r.sum_actual>r.plan_budget&&r.plan_budget>0;
-        const lowCompliance=jiraPct<50||invPct<50;
-        const health=overBudget||lowCompliance?'red':(jiraPct<80||invPct<80||parseFloat(util)>90)?'amber':'green';
-        const healthIcon=health==='green'?'&#x2705;':health==='amber'?'&#x26A0;':'&#x274C;';
-        return `<tr class="rc-mkt-trow" data-co="${esc(r.country)}" style="cursor:pointer" onclick="toggleReconMkt('${esc(r.country)}');scrollToReconMkt('${esc(r.country)}')">
-          <td style="font-weight:600">${esc(r.country)}</td>
-          <td class="mono" style="text-align:right">$${fmt(r.plan_budget)}</td>
-          <td class="mono" style="text-align:right;color:var(--go)">$${fmt(r.sum_planned)}</td>
-          <td class="mono" style="text-align:right;color:var(--su)">$${fmt(r.sum_actual)}</td>
-          <td class="mono" style="text-align:right;color:${vc}">${v>0?'+':''}$${fmt(v)}</td>
-          <td class="mono" style="text-align:center">${util}%</td>
-          <td style="text-align:center">${r.entries}</td>
-          <td style="text-align:center"><span class="badge ${jiraPct>=80?'b-green':jiraPct>=50?'b-amber':'b-red'}" style="font-size:10px">${jiraPct}%</span></td>
-          <td style="text-align:center"><span class="badge ${invPct>=80?'b-green':invPct>=50?'b-amber':'b-red'}" style="font-size:10px">${invPct}%</span></td>
-          <td style="font-size:13px">${healthIcon}</td>
-        </tr>`;
-      }).join('')}</tbody>
-      <tfoot><tr>
-        <td style="font-weight:700">${quarter} Total</td>
-        <td class="mono" style="text-align:right;font-weight:700">$${fmt(totBud)}</td>
-        <td class="mono" style="text-align:right;font-weight:700;color:var(--go)">$${fmt(totPln)}</td>
-        <td class="mono" style="text-align:right;font-weight:700;color:var(--su)">$${fmt(totAct)}</td>
-        <td class="mono" style="text-align:right;font-weight:700;color:${varClr}">${totVar>0?'+':''}$${fmt(totVar)}</td>
-        <td class="mono" style="text-align:center;font-weight:700">${totBud>0?(totAct/totBud*100).toFixed(0):'--'}%</td>
-        <td style="text-align:center;font-weight:700">${totEntries}</td>
-        <td style="text-align:center"><span class="badge ${pctJira>=80?'b-green':'b-amber'}" style="font-size:10px">${pctJira}%</span></td>
-        <td style="text-align:center"><span class="badge ${pctInv>=80?'b-green':'b-amber'}" style="font-size:10px">${pctInv}%</span></td>
-        <td></td>
-      </tr></tfoot>
-    </table></div>
-  </div>`;
+  if(!data.length){html+=`<div style="text-align:center;padding:48px;color:var(--t3)">No data for ${quarter}</div>`;g('page').innerHTML=html;return;}
 
-  // ── MARKET DRILL-DOWN CARDS (collapsed by default) ──
-  html+=`<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--t3);margin:18px 0 10px">Market Detail &mdash; click a market row above or expand below</div>`;
+  // Market-level table with expandable breakdowns
   html+=`<div id="rc-markets">`;
   data.forEach(r=>{
     const v=r.var_plan_vs_actual;const vc=v>0?'var(--da)':'var(--su)';
     const fl=r.flags;const notes=[];
     if(fl.no_jira>0) notes.push(`${fl.no_jira} no JIRA`);
     if(fl.no_invoice>0) notes.push(`${fl.no_invoice} no invoice`);
-    if(fl.no_actual>0) notes.push(`${fl.no_actual} no actual`);
 
-    html+=`<div class="card rc-mkt-card" data-co="${esc(r.country)}" id="rc-card-${esc(r.country)}" style="overflow:hidden;margin-bottom:8px">
-      <div style="padding:10px 16px;cursor:pointer;display:flex;align-items:center;gap:12px;background:var(--s2)" onclick="toggleReconMkt('${esc(r.country)}')">
-        <div class="chev" id="rc-chev-${esc(r.country)}" style="font-size:11px">&#x25B6;</div>
-        <div style="flex:1;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-          <span style="font-weight:600;font-size:13px;min-width:40px">${esc(r.country)}</span>
-          <span class="mono" style="font-size:11px;color:var(--t2)">B:$${fmt(r.plan_budget)} &middot; P:$${fmt(r.sum_planned)} &middot; A:$${fmt(r.sum_actual)}</span>
-          <span class="mono" style="font-size:11px;color:${vc}">Var:${v>0?'+':''}$${fmt(v)}</span>
-          <span class="badge b-gray" style="font-size:10px">${r.entries} entries</span>
-          ${notes.map(n=>`<span style="font-size:10px;color:var(--wa)">&#x26A0; ${n}</span>`).join('')}
+    html+=`<div class="card rc-mkt-card" data-co="${esc(r.country)}" style="overflow:hidden;margin-bottom:10px">
+      <div style="padding:12px 16px;cursor:pointer;display:flex;align-items:center;gap:12px" onclick="toggleReconMkt('${esc(r.country)}')">
+        <div class="chev" id="rc-chev-${esc(r.country)}">&#x25B6;</div>
+        <div style="flex:1">
+          <div style="font-weight:600;font-size:14px;display:flex;align-items:center;gap:8px">${esc(r.country)}
+            <span class="badge b-gray">${r.entries} entries</span>
+            ${notes.length?`<span style="font-size:10px;color:var(--wa)">${notes.join(' · ')}</span>`:''}
+          </div>
+          <div style="display:flex;gap:20px;margin-top:4px;font-size:12px">
+            <span>Budget: <strong class="mono">$${fmt(r.plan_budget)}</strong></span>
+            <span style="color:var(--go)">Planned: <strong class="mono">$${fmt(r.sum_planned)}</strong></span>
+            <span style="color:var(--su)">Actual: <strong class="mono">$${fmt(r.sum_actual)}</strong></span>
+            <span style="color:${vc}">Var: <strong class="mono">${v>0?'+':''}$${fmt(v)}</strong></span>
+          </div>
         </div>
       </div>
       <div id="rc-body-${esc(r.country)}" style="display:none;border-top:1px solid var(--b)">`;
 
+    // Channel breakdowns
     if(r.channels_data && r.channels_data.length>0){
       html+=`<div class="tbl-wrap"><table>
         <thead><tr><th>Channel / Activity</th><th style="text-align:right">Budget</th><th style="text-align:right">Planned</th><th style="text-align:right">Actual</th><th style="text-align:right">Variance</th><th>Entries</th></tr></thead><tbody>`;
@@ -1075,6 +982,7 @@ function buildReconPage(data){
           <td>${ch.entries}</td>
         </tr>`;
 
+        // Activity rows (nested under channel)
         const actRows = ch.activities||[];
         actRows.forEach(act=>{
           const aVar=act.actual-act.planned;
@@ -1088,20 +996,22 @@ function buildReconPage(data){
             <td>${act.entries}</td>
           </tr>`;
 
+          // Entry-level detail rows
           (act.items||[]).forEach(item=>{
             const iVar=item.actual-item.planned;
             const iVc=iVar>0?'var(--da)':'var(--su)';
             html+=`<tr class="recon-entry-row rc-act-detail-${esc(r.country)}_${esc(ch.id)}_${esc(act.id)}" style="display:none">
-              <td style="padding-left:56px;font-size:11px;color:var(--t2)">${mLbl(item.month)} - ${esc(item.description||item.vendor||'--')}</td>
+              <td style="padding-left:56px;font-size:11px;color:var(--t2)">${mLbl(item.month)} — ${esc(item.description||item.vendor||'—')}</td>
               <td></td>
               <td class="mono" style="text-align:right;font-size:11px;color:var(--go)">$${fmt(item.planned)}</td>
               <td class="mono" style="text-align:right;font-size:11px;color:var(--su)">$${fmt(item.actual)}</td>
-              <td class="mono" style="text-align:right;font-size:11px;color:${iVc}">${(item.planned||item.actual)?(iVar>0?'+':'')+'$'+fmt(iVar):'--'}</td>
-              <td style="font-size:10px">${item.jira?'<span class="mono" style="color:var(--in)">'+esc(item.jira)+'</span>':'<span style="color:var(--da)">no JIRA</span>'} ${item.approved?'<span class="badge b-green" style="font-size:9px">&#x2713;</span>':''}</td>
+              <td class="mono" style="text-align:right;font-size:11px;color:${iVc}">${(item.planned||item.actual)?(iVar>0?'+':'')+'$'+fmt(iVar):'—'}</td>
+              <td style="font-size:10px">${item.jira?'<span class="mono" style="color:var(--in)">'+esc(item.jira)+'</span>':''} ${item.approved?'<span class="badge b-green" style="font-size:9px">&#x2713;</span>':''}</td>
             </tr>`;
           });
         });
 
+        // Unassigned entries
         if(ch.unassigned && ch.unassigned.length>0){
           html+=`<tr class="recon-act-row rc-ch-detail-${esc(r.country)}_${esc(ch.id)}" style="display:none">
             <td style="padding-left:30px;color:var(--t3);font-style:italic">&#x2514; Unassigned (${ch.unassigned.length})</td>
@@ -1113,6 +1023,7 @@ function buildReconPage(data){
         }
       });
 
+      // Orphan entries
       if(r.orphan_entries && r.orphan_entries.length>0){
         const oP=r.orphan_entries.reduce((s,i)=>s+i.planned,0);
         const oA=r.orphan_entries.reduce((s,i)=>s+i.actual,0);
@@ -1124,6 +1035,7 @@ function buildReconPage(data){
           <td></td><td>${r.orphan_entries.length}</td>
         </tr>`;
       }
+
       html+=`</tbody></table></div>`;
     } else {
       html+=`<div style="padding:16px;text-align:center;color:var(--t3);font-size:12px">No channel breakdown available</div>`;
@@ -1131,6 +1043,20 @@ function buildReconPage(data){
     html+=`</div></div>`;
   });
   html+=`</div>`;
+
+  // Summary footer
+  html+=`<div class="card" style="padding:14px 16px;margin-top:4px">
+    <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px">
+      <span style="font-weight:600">${quarter} Total</span>
+      <div style="display:flex;gap:20px">
+        <span>Budget: <strong class="mono">$${fmt(totBud)}</strong></span>
+        <span style="color:var(--go)">Planned: <strong class="mono">$${fmt(totPln)}</strong></span>
+        <span style="color:var(--su)">Actual: <strong class="mono">$${fmt(totAct)}</strong></span>
+        <span style="color:${varClr}">Var: <strong class="mono">${totVar>0?'+':''}$${fmt(totVar)}</strong></span>
+        <span>${data.reduce((s,r)=>s+r.entries,0)} entries</span>
+      </div>
+    </div>
+  </div>`;
 
   g('page').innerHTML=html;
 }
@@ -1171,22 +1097,22 @@ function reconApplyFilters(){
   const info=g('rc-f-info');
   if(info) info.textContent=active>0?active+' filter(s) active':'';
 
-  // Filter drill-down cards
   document.querySelectorAll('.rc-mkt-card').forEach(function(card){
     const co=card.dataset.co||'';
     card.style.display=(selCo.length===0||selCo.includes(co))?'':'none';
   });
 
-  // Filter comparison table rows
-  document.querySelectorAll('.rc-mkt-trow').forEach(function(tr){
-    const co=tr.dataset.co||'';
-    tr.style.display=(selCo.length===0||selCo.includes(co))?'':'none';
-  });
-}
-
-function scrollToReconMkt(co){
-  const card=g('rc-card-'+co);
-  if(card) setTimeout(function(){card.scrollIntoView({behavior:'smooth',block:'nearest'})},100);
+  // Update stats
+  const data=window._reconData||[];
+  const filtered=selCo.length>0?data.filter(r=>selCo.includes(r.country)):data;
+  const fBud=filtered.reduce((s,r)=>s+r.plan_budget,0);
+  const fPln=filtered.reduce((s,r)=>s+r.sum_planned,0);
+  const fAct=filtered.reduce((s,r)=>s+r.sum_actual,0);
+  const fVar=fAct-fPln;
+  const sb=g('rc-s-bud');if(sb) sb.textContent='$'+fmt(fBud);
+  const sp=g('rc-s-pln');if(sp) sp.textContent='$'+fmt(fPln);
+  const sa=g('rc-s-act');if(sa) sa.textContent='$'+fmt(fAct);
+  const sv3=g('rc-s-var');if(sv3){sv3.textContent=(fVar>0?'+':'')+'$'+fmt(fVar);sv3.style.color=fVar>0?'var(--da)':'var(--su)';}
 }
 
 // ===================================================================
@@ -1199,7 +1125,7 @@ async function renderPM(){
     let html=`<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px">
       <div style="display:flex;align-items:center;gap:10px">
         <div style="font-size:16px;font-weight:600">&#x1F517; PM Data Sync</div>
-        <span style="font-size:11px;color:var(--t3)">Source: BigQuery (pepperstone_apac.ad_performance)</span>
+        <span style="font-size:11px;color:var(--t3)">Source: Performance Marketing Google Sheet</span>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
         <div class="qtabs">${QS.map(q=>`<button class="qtab ${q===quarter?'active':''}" onclick="quarter='${q}';renderPM()">${q}</button>`).join('')}</div>
@@ -1213,7 +1139,7 @@ async function renderPM(){
     </div>`;
 
     html+=`<div class="stats-row" style="margin-bottom:14px">
-      <div class="stat"><div class="stat-l">BigQuery Rows</div><div class="stat-v">${fmt(data.total_rows)}</div></div>
+      <div class="stat"><div class="stat-l">PM Sheet Rows</div><div class="stat-v">${fmt(data.total_rows)}</div></div>
       <div class="stat"><div class="stat-l">APAC Rows</div><div class="stat-v">${fmt(data.apac_rows)}</div></div>
       <div class="stat"><div class="stat-l">Total Spend (AUD)</div><div class="stat-v" style="color:var(--su)">$${fmt(data.total_spend)}</div></div>
       <div class="stat"><div class="stat-l">Aggregated Lines</div><div class="stat-v">${data.preview.length}</div></div>
@@ -1270,7 +1196,7 @@ async function renderPM(){
     g('page').innerHTML=html;
     setTimeout(function(){ pmRunAutoSync(); }, 100);
   }catch(e){
-    g('page').innerHTML=`<div style="padding:24px"><div style="background:var(--dab);border:1px solid var(--dabr);border-radius:var(--r);padding:16px"><div style="font-weight:600;color:var(--da)">BigQuery Load Failed</div><div style="font-size:12px;color:var(--t2);margin-top:4px">${esc(e.message)}</div></div></div>`;
+    g('page').innerHTML=`<div style="padding:24px"><div style="background:var(--dab);border:1px solid var(--dabr);border-radius:var(--r);padding:16px"><div style="font-weight:600;color:var(--da)">PM Sheet Load Failed</div><div style="font-size:12px;color:var(--t2);margin-top:4px">${esc(e.message)}</div></div></div>`;
   }
 }
 
@@ -1296,7 +1222,7 @@ async function pmRunAutoSync(){
   const banner=g('pm-sync-banner');
   const status=g('pm-sync-status');
   if(btn){btn.disabled=true;btn.textContent='Syncing...';}
-  if(status) status.textContent='Reading BigQuery & syncing to tracker... this may take 30-60 seconds';
+  if(status) status.textContent='Reading PM sheet & syncing to tracker... this may take 30-60 seconds';
   if(banner){banner.style.display='flex';banner.style.background='var(--inb)';banner.style.color='var(--in)';}
   try{
     const sr=await fetch('/api/pm/auto_sync').then(function(r){return r.json()});
@@ -1376,21 +1302,10 @@ function openEM(entryId,chanId,actId){
     <div class="fg fg2">
       <div class="field"><label>JIRA Task</label><input type="text" id="m-jira" value="${esc(e?.jira||'')}"></div>
       <div class="field"><label>Vendor<span class="req">*</span></label>
-        <div style="display:flex;gap:6px;align-items:flex-start">
-          <div style="flex:1">
-            <select id="m-ven" onchange="if(this.value==='__new__'){this.style.display='none';g('m-ven-new-wrap').style.display='flex';g('m-ven-input').focus();}"><option value="">Select...</option>
-              ${(window._vendorList||[]).map(v=>`<option value="${esc(v.name)}" ${e?.vendor===v.name?'selected':''}>${esc(v.name)}</option>`).join('')}
-              ${e?.vendor&&!(window._vendorList||[]).find(v=>v.name===e.vendor)?`<option value="${esc(e.vendor)}" selected>${esc(e.vendor)}</option>`:''}
-              <option value="__new__">+ Add new vendor...</option>
-            </select>
-            <div id="m-ven-new-wrap" style="display:none;gap:6px;align-items:center">
-              <input type="text" id="m-ven-input" placeholder="Type new vendor name..." style="flex:1">
-              <button type="button" class="btn btn-p btn-xs" onclick="addNewVendorInline()">Add</button>
-              <button type="button" class="btn btn-g btn-xs" onclick="cancelNewVendor()">Cancel</button>
-            </div>
-          </div>
-        </div>
-        <span class="err-msg">Required</span></div>
+        <select id="m-ven"><option value="">Select...</option>
+          ${(window._vendorList||[]).map(v=>`<option value="${esc(v.name)}" ${e?.vendor===v.name?'selected':''}>${esc(v.name)}</option>`).join('')}
+          ${e?.vendor&&!(window._vendorList||[]).find(v=>v.name===e.vendor)?`<option value="${esc(e.vendor)}" selected>${esc(e.vendor)}</option>`:''}
+        </select><span class="err-msg">Required</span></div>
     </div>
     <div class="field" style="margin-bottom:12px"><label>Notes</label><textarea id="m-notes">${esc(e?.notes||'')}</textarea></div>
     <div class="sdiv"><span>Invoices</span></div>
@@ -1422,30 +1337,6 @@ function onChChange(sel){
   }
   if(ch) applyMapping(ch.name);
 }
-async function addNewVendorInline(){
-  const name=(g('m-ven-input')?.value||'').trim();
-  if(!name){toast('Enter a vendor name','err');return;}
-  try{
-    const d=await api('/api/vendors',{method:'POST',body:JSON.stringify({name})});
-    window._vendorList=window._vendorList||[];
-    window._vendorList.push({id:d.id,name:d.name,country:d.country});
-    window._vendorList.sort((a,b)=>a.name.localeCompare(b.name));
-    const sel=g('m-ven');
-    const opt=document.createElement('option');
-    opt.value=d.name;opt.textContent=d.name;opt.selected=true;
-    sel.insertBefore(opt,sel.querySelector('option[value="__new__"]'));
-    sel.style.display='';
-    g('m-ven-new-wrap').style.display='none';
-    g('m-ven-input').value='';
-    toast('Vendor "'+d.name+'" added','ok');
-  }catch(e){toast(e.message||'Failed to add vendor','err');}
-}
-function cancelNewVendor(){
-  g('m-ven').value='';
-  g('m-ven').style.display='';
-  g('m-ven-new-wrap').style.display='none';
-  g('m-ven-input').value='';
-}
 function toggleApp(){
   approveState=!approveState;
   g('app-tog')?.classList.toggle('on',approveState);
@@ -1466,31 +1357,11 @@ function rmPInv(i){pendingInvs.splice(i,1);g(`pinv-${i}`)?.remove();}
 function closeEM(){g('ov-entry').classList.remove('open');}
 
 async function saveEntry(){
-  // Get vendor value - from select or from new vendor input
-  let vendorVal = gv('m-ven');
-  const venNewInput = g('m-ven-input');
-  if((!vendorVal || vendorVal==='__new__') && venNewInput && venNewInput.value.trim()){
-    // User typed a new vendor but didn't click Add - auto-add it
-    const newName = venNewInput.value.trim();
-    try{
-      const d=await api('/api/vendors',{method:'POST',body:JSON.stringify({name:newName})});
-      window._vendorList=window._vendorList||[];
-      window._vendorList.push({id:d.id,name:d.name,country:d.country});
-      vendorVal = d.name;
-    }catch(e){
-      vendorVal = newName; // Use name even if save fails
-    }
-  }
-  if(vendorVal==='__new__') vendorVal='';
-
-  const req={mo:'m-mo',bu:'m-bu',fc:'m-fc',mc:'m-mc',pln:'m-pln'};
+  const req={mo:'m-mo',bu:'m-bu',fc:'m-fc',mc:'m-mc',pln:'m-pln',ven:'m-ven'};
   const chEl=g('m-ch');
   if(chEl&&budgetData.channels.length>0) req.ch='m-ch';
   let ok=true;
   Object.values(req).forEach(id=>{const el=g(id),p=el?.closest('.field');if(!el?.value?.trim()){p?.classList.add('has-err');ok=false;}else p?.classList.remove('has-err');});
-  // Validate vendor separately
-  const venField=g('m-ven')?.closest('.field');
-  if(!vendorVal){venField?.classList.add('has-err');ok=false;}else{venField?.classList.remove('has-err');}
   if(!ok){toast('Fill required fields','err');return;}
 
   let channelId='',channelName='',activityId='',activityName='';
@@ -1509,7 +1380,7 @@ async function saveEntry(){
     planned:parseFloat(gv('m-pln'))||0,
     confirmed:parseFloat(gv('m-con'))||0,
     actual:parseFloat(gv('m-act2'))||0,
-    jira:gv('m-jira'), vendor:vendorVal, notes:g('m-notes')?.value?.trim()||'',
+    jira:gv('m-jira'), vendor:gv('m-ven'), notes:g('m-notes')?.value?.trim()||'',
     approved:approveState,
     invoice_names:[...existInvNames,...pendingInvs.map(i=>i.name)],
     invoice_data:[...pendingInvs.map(i=>i.dataUrl)],
