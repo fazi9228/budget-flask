@@ -141,6 +141,26 @@ tfoot td{background:var(--s2);font-weight:600;font-size:12px}
 .recon-act-row td{padding-left:30px!important;font-size:11.5px}
 .recon-entry-row td{padding-left:48px!important;font-size:11px;color:var(--t2)}
 .recon-ch-row:hover td,.recon-act-row:hover td{background:var(--s3)!important}
+/* === UPLOAD + BULK DELETE ADDITIONS === */
+.upload-panel{border:1px dashed var(--b);border-radius:var(--r);padding:14px;margin-top:10px;background:var(--s2)}
+.upload-panel h4{margin:0 0 4px 0;font-size:13px;font-weight:600;color:var(--t)}
+.upload-panel .sub{font-size:11px;color:var(--t3);margin-bottom:8px}
+.upload-panel input[type=file]{margin:4px 0 8px 0;font-size:12px}
+.upload-result{margin-top:8px;padding:8px 10px;border-radius:var(--r);font-size:12px}
+.upload-result.ok{background:var(--sub);color:var(--su)}
+.upload-result.err{background:var(--dab);color:var(--da)}
+.upload-result .detail{max-height:180px;overflow:auto;margin-top:6px;background:var(--s);padding:7px;border-radius:4px;font-family:'DM Mono',monospace;font-size:10.5px;color:var(--t2)}
+.danger-zone{border:2px solid var(--da);border-radius:var(--r);padding:12px 14px;margin-top:16px;background:var(--dab)}
+.danger-zone summary{cursor:pointer;font-weight:600;color:var(--da);font-size:13px;user-select:none}
+.danger-zone summary:hover{text-decoration:underline}
+.danger-zone .dz-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:10px}
+.danger-zone .confirm-box{margin-top:10px;padding:9px 12px;background:var(--s);border:1px solid var(--da);border-radius:var(--r)}
+.danger-zone input[type=text]{font-family:'DM Mono',monospace}
+.danger-zone .preview-sample{max-height:240px;overflow:auto;margin-top:8px;background:var(--s);border-radius:4px;padding:6px}
+.danger-zone table{font-size:11px}
+.danger-zone table th,.danger-zone table td{padding:3px 7px}
+@media(max-width:900px){.danger-zone .dz-grid{grid-template-columns:1fr 1fr 1fr}}
+@media(max-width:640px){.danger-zone .dz-grid{grid-template-columns:1fr 1fr}}
 </style>
 </head>
 <body>
@@ -447,12 +467,13 @@ function buildDash(){
       chs+=`<div class="ch-card"><div class="ch-head" onclick="toggleCh('${ch.id}')">
         <div class="chev" id="chev-${ch.id}">&#x25B6;</div>
         <div class="ch-info"><div class="ch-name">${esc(ch.name)}
-          ${over?'<span style="color:var(--da);font-size:12px">&#x26A0; Over</span>':''}
-          <span class="badge ${over?'b-red':'b-teal'}">$${fmt(chAct)} / $${fmt(ch.budget)}</span>
+          ${ch.budget>0 && over?'<span style="color:var(--da);font-size:12px">&#x26A0; Over</span>':''}
+          ${ch.budget===0 && chAct>0?'<span style="color:var(--wa);font-size:11px" title="No budget set in Config for this channel">&#x26A0; Unbudgeted</span>':''}
+          <span class="badge ${over?'b-red':ch.budget>0?'b-teal':'b-gray'}">$${fmt(chAct)} / $${fmt(ch.budget)}</span>
           <span style="font-size:11px;color:var(--t3)">${acts.length} act. · ${chEntries.length} entries</span></div>
           <div style="display:flex;align-items:center;gap:12px;margin-top:3px">
             <div class="bbar-wrap" style="max-width:300px;flex:1"><div class="bbar" style="width:${cp}%;background:${bClr(chAct,ch.budget)}"></div></div>
-            <span class="mono" style="font-size:10px;color:var(--t3)">P:$${fmt(chPln)} · A:$${fmt(chAct)}</span></div></div>
+            <span class="mono" style="font-size:10px;color:var(--t3)">B:$${fmt(ch.budget)} &middot; A:$${fmt(chAct)}${ch.budget>0?` &middot; ${over?'<span style=\"color:var(--da)\">Over by $'+fmt(chAct-ch.budget)+'</span>':'<span style=\"color:var(--su)\">$'+fmt(ch.budget-chAct)+' left</span>'}`:''} &middot; P:$${fmt(chPln)}</span></div></div>
         <div style="display:flex;gap:4px" onclick="event.stopPropagation()">
           <button class="btn btn-g btn-xs" onclick="openAM(null,'','${ch.id}')">+ Activity</button>
           <button class="btn btn-p btn-xs" onclick="openEM(null,'${ch.id}',null)">+ Add</button>
@@ -467,17 +488,23 @@ function buildEntryTable(rows,showAct){
   if(!rows.length) return `<div style="text-align:center;padding:20px;color:var(--t3);font-size:12px">No entries</div>`;
   const cols=showAct?['Month','Activity','Finance Cat.','Description','Planned','Confirmed','Actual','Var','Vendor','JIRA','Status','']:['Month','Finance Cat.','Description','Planned','Confirmed','Actual','Var','Vendor','JIRA','Status',''];
   const rh=rows.map(e=>{
+    // Variance only meaningful when planned > 0. PM-synced rows (planned=0) show dash.
+    const hasPlanned=(e.planned||0)>0;
     const v=(e.actual||0)-(e.planned||0);
-    const vClr=v===0?'var(--t3)':v>0?'var(--da)':'var(--su)';
+    const vClr=!hasPlanned?'var(--t3)':v===0?'var(--t3)':v>0?'var(--da)':'var(--su)';
+    const varCell=hasPlanned?((v>0?'+':'')+'$'+fmt(v)):'—';
+    // PM-synced rows are detected by id prefix 'pm_'. They get an [auto] badge.
+    const isPM=String(e.id||'').startsWith('pm_');
+    const pmBadge=isPM?' <span class="badge b-gray" style="font-size:9px;padding:1px 5px" title="Auto-created from PM sync">auto</span>':'';
     return `<tr>
-      <td style="color:var(--t2);white-space:nowrap">${mLbl(e.month)}</td>
+      <td style="color:var(--t2);white-space:nowrap">${mLbl(e.month)}${pmBadge}</td>
       ${showAct?`<td style="font-size:11.5px;color:var(--in);font-weight:500">${esc(e.activity_name||'—')}</td>`:''}
       <td style="color:var(--t2)">${esc(e.finance_cat||'—')}</td>
       <td style="max-width:120px"><span title="${esc(e.description)}" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.description||'—')}</span></td>
       <td class="mono" style="color:var(--go);white-space:nowrap">${e.planned?'$'+fmt(e.planned):'—'}</td>
       <td class="mono" style="color:var(--in);white-space:nowrap">${e.confirmed?'$'+fmt(e.confirmed):'—'}</td>
       <td class="mono" style="color:var(--su);white-space:nowrap">${e.actual?'$'+fmt(e.actual):'—'}</td>
-      <td class="mono" style="color:${vClr};white-space:nowrap;font-size:11px">${(e.planned||e.actual)?(v>0?'+':'')+('$'+fmt(v)):'—'}</td>
+      <td class="mono" style="color:${vClr};white-space:nowrap;font-size:11px">${varCell}</td>
       <td style="font-size:11.5px">${esc(e.vendor||'—')}</td>
       <td><span class="mono" style="font-size:11px;color:var(--in)">${esc(e.jira||'—')}</span></td>
       <td>${e.approved?'<span class="badge b-green">&#x2713;</span>':'<span class="badge b-amber">&#x23F3;</span>'}</td>
@@ -914,13 +941,20 @@ function buildReconPage(data){
   const totVar=totAct-totPln;
   const varClr=totVar>0?'var(--da)':'var(--su)';
   const totEntries=data.reduce((s,r)=>s+r.entries,0);
+  const totManual=data.reduce((s,r)=>s+(r.entries_manual||0),0);
 
-  // Compliance totals
+  // Compliance totals (all entries)
   const totNoJira=data.reduce((s,r)=>s+(r.flags?.no_jira||0),0);
   const totNoInv=data.reduce((s,r)=>s+(r.flags?.no_invoice||0),0);
   const totNoActual=data.reduce((s,r)=>s+(r.flags?.no_actual||0),0);
   const pctJira=totEntries>0?Math.round((totEntries-totNoJira)/totEntries*100):0;
   const pctInv=totEntries>0?Math.round((totEntries-totNoInv)/totEntries*100):0;
+
+  // Manual-only compliance (excludes PM-synced rows which don't need JIRA/invoices)
+  const totNoJiraM=data.reduce((s,r)=>s+(r.flags?.no_jira_manual||0),0);
+  const totNoInvM=data.reduce((s,r)=>s+(r.flags?.no_invoice_manual||0),0);
+  const pctJiraM=totManual>0?Math.round((totManual-totNoJiraM)/totManual*100):0;
+  const pctInvM=totManual>0?Math.round((totManual-totNoInvM)/totManual*100):0;
 
   const reconCountries = data.map(r=>r.country).sort();
 
@@ -954,21 +988,21 @@ function buildReconPage(data){
 
   // ── COMPLIANCE SCORECARD ──
   html+=`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px">
-    <div class="card" style="padding:14px;border-left:4px solid ${pctJira>=80?'var(--su)':pctJira>=50?'var(--wa)':'var(--da)'}">
+    <div class="card" style="padding:14px;border-left:4px solid ${pctJiraM>=80?'var(--su)':pctJiraM>=50?'var(--wa)':'var(--da)'}">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-        <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--t3);letter-spacing:.07em">JIRA Compliance</div>
-        <span class="badge ${pctJira>=80?'b-green':pctJira>=50?'b-amber':'b-red'}">${pctJira}%</span>
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--t3);letter-spacing:.07em">JIRA Compliance <span style="font-weight:400;text-transform:none" title="PM-synced rows don't need JIRA tickets, so 'Manual only' is the meaningful number">(manual only)</span></div>
+        <span class="badge ${pctJiraM>=80?'b-green':pctJiraM>=50?'b-amber':'b-red'}">${pctJiraM}%</span>
       </div>
-      <div class="bbar-wrap" style="height:6px"><div class="bbar" style="width:${pctJira}%;background:${pctJira>=80?'var(--su)':pctJira>=50?'var(--wa)':'var(--da)'}"></div></div>
-      <div style="font-size:11px;color:var(--t3);margin-top:5px">${totNoJira} of ${totEntries} entries missing JIRA link</div>
+      <div class="bbar-wrap" style="height:6px"><div class="bbar" style="width:${pctJiraM}%;background:${pctJiraM>=80?'var(--su)':pctJiraM>=50?'var(--wa)':'var(--da)'}"></div></div>
+      <div style="font-size:11px;color:var(--t3);margin-top:5px">${totNoJiraM} of ${totManual} manual entries missing JIRA &middot; <span style="color:var(--t3)">overall w/ PM: ${pctJira}%</span></div>
     </div>
-    <div class="card" style="padding:14px;border-left:4px solid ${pctInv>=80?'var(--su)':pctInv>=50?'var(--wa)':'var(--da)'}">
+    <div class="card" style="padding:14px;border-left:4px solid ${pctInvM>=80?'var(--su)':pctInvM>=50?'var(--wa)':'var(--da)'}">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-        <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--t3);letter-spacing:.07em">Invoice Compliance</div>
-        <span class="badge ${pctInv>=80?'b-green':pctInv>=50?'b-amber':'b-red'}">${pctInv}%</span>
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:var(--t3);letter-spacing:.07em">Invoice Compliance <span style="font-weight:400;text-transform:none">(manual only)</span></div>
+        <span class="badge ${pctInvM>=80?'b-green':pctInvM>=50?'b-amber':'b-red'}">${pctInvM}%</span>
       </div>
-      <div class="bbar-wrap" style="height:6px"><div class="bbar" style="width:${pctInv}%;background:${pctInv>=80?'var(--su)':pctInv>=50?'var(--wa)':'var(--da)'}"></div></div>
-      <div style="font-size:11px;color:var(--t3);margin-top:5px">${totNoInv} entries with actual spend but no invoice</div>
+      <div class="bbar-wrap" style="height:6px"><div class="bbar" style="width:${pctInvM}%;background:${pctInvM>=80?'var(--su)':pctInvM>=50?'var(--wa)':'var(--da)'}"></div></div>
+      <div style="font-size:11px;color:var(--t3);margin-top:5px">${totNoInvM} manual entries with actual spend but no invoice &middot; <span style="color:var(--t3)">overall w/ PM: ${pctInv}%</span></div>
     </div>
     <div class="card" style="padding:14px;border-left:4px solid var(--in)">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
@@ -993,7 +1027,7 @@ function buildReconPage(data){
       <thead><tr>
         <th>Market</th><th style="text-align:right">Budget</th><th style="text-align:right">Planned</th>
         <th style="text-align:right">Actual</th><th style="text-align:right">Variance</th>
-        <th style="text-align:center">Util %</th><th style="text-align:center">Entries</th>
+        <th style="text-align:center">Util %</th><th style="text-align:center" title="Manual entries only; auto-synced PM rows are not counted for compliance">Manual</th>
         <th style="text-align:center">JIRA</th><th style="text-align:center">Invoice</th>
         <th>Health</th>
       </tr></thead>
@@ -1001,8 +1035,11 @@ function buildReconPage(data){
         const v=r.var_plan_vs_actual;const vc=v>0?'var(--da)':'var(--su)';
         const util=r.plan_budget>0?(r.sum_actual/r.plan_budget*100).toFixed(0):'--';
         const fl=r.flags;
-        const jiraPct=r.entries>0?Math.round((r.entries-fl.no_jira)/r.entries*100):100;
-        const invPct=r.entries>0?Math.round((r.entries-fl.no_invoice)/r.entries*100):100;
+        // Manual-only compliance — PM-synced rows (id prefix pm_) are excluded from
+        // compliance math since they don't need JIRA tickets or invoices.
+        const manualCount=r.entries_manual||0;
+        const jiraPct=manualCount>0?Math.round((manualCount-(fl.no_jira_manual||0))/manualCount*100):100;
+        const invPct=manualCount>0?Math.round((manualCount-(fl.no_invoice_manual||0))/manualCount*100):100;
         // Health: green if <90% budget and >70% compliance, amber if borderline, red if over or low compliance
         const overBudget=r.sum_actual>r.plan_budget&&r.plan_budget>0;
         const lowCompliance=jiraPct<50||invPct<50;
@@ -1015,9 +1052,9 @@ function buildReconPage(data){
           <td class="mono" style="text-align:right;color:var(--su)">$${fmt(r.sum_actual)}</td>
           <td class="mono" style="text-align:right;color:${vc}">${v>0?'+':''}$${fmt(v)}</td>
           <td class="mono" style="text-align:center">${util}%</td>
-          <td style="text-align:center">${r.entries}</td>
-          <td style="text-align:center"><span class="badge ${jiraPct>=80?'b-green':jiraPct>=50?'b-amber':'b-red'}" style="font-size:10px">${jiraPct}%</span></td>
-          <td style="text-align:center"><span class="badge ${invPct>=80?'b-green':invPct>=50?'b-amber':'b-red'}" style="font-size:10px">${invPct}%</span></td>
+          <td style="text-align:center" title="${r.entries_auto||0} auto-synced from PM">${manualCount}${r.entries_auto?' <span style="color:var(--t3);font-size:9px">(+'+r.entries_auto+' auto)</span>':''}</td>
+          <td style="text-align:center"><span class="badge ${jiraPct>=80?'b-green':jiraPct>=50?'b-amber':'b-red'}" style="font-size:10px" title="Manual entries only">${jiraPct}%</span></td>
+          <td style="text-align:center"><span class="badge ${invPct>=80?'b-green':invPct>=50?'b-amber':'b-red'}" style="font-size:10px" title="Manual entries only">${invPct}%</span></td>
           <td style="font-size:13px">${healthIcon}</td>
         </tr>`;
       }).join('')}</tbody>
@@ -1028,9 +1065,9 @@ function buildReconPage(data){
         <td class="mono" style="text-align:right;font-weight:700;color:var(--su)">$${fmt(totAct)}</td>
         <td class="mono" style="text-align:right;font-weight:700;color:${varClr}">${totVar>0?'+':''}$${fmt(totVar)}</td>
         <td class="mono" style="text-align:center;font-weight:700">${totBud>0?(totAct/totBud*100).toFixed(0):'--'}%</td>
-        <td style="text-align:center;font-weight:700">${totEntries}</td>
-        <td style="text-align:center"><span class="badge ${pctJira>=80?'b-green':'b-amber'}" style="font-size:10px">${pctJira}%</span></td>
-        <td style="text-align:center"><span class="badge ${pctInv>=80?'b-green':'b-amber'}" style="font-size:10px">${pctInv}%</span></td>
+        <td style="text-align:center;font-weight:700">${totManual}${totEntries>totManual?' <span style="color:var(--t3);font-weight:400;font-size:9px">(+'+(totEntries-totManual)+' auto)</span>':''}</td>
+        <td style="text-align:center"><span class="badge ${pctJiraM>=80?'b-green':'b-amber'}" style="font-size:10px">${pctJiraM}%</span></td>
+        <td style="text-align:center"><span class="badge ${pctInvM>=80?'b-green':'b-amber'}" style="font-size:10px">${pctInvM}%</span></td>
         <td></td>
       </tr></tfoot>
     </table></div>
@@ -1358,11 +1395,29 @@ function openEM(entryId,chanId,actId){
       <div class="field"><label>BU / Finance Account<span class="req">*</span></label>
         <select id="m-bu"><option value="">Select...</option>${BU_LIST.map(b=>`<option value="${esc(b)}" ${e?.bu===b?'selected':''}>${esc(b.replace('Marketing : ','').replace(/\\s*-\\s*613\\d{6}XXX/,''))}</option>`).join('')}</select><span class="err-msg">Required</span></div>
       <div class="field"><label>Finance Category<span class="req">*</span></label>
-        <select id="m-fc"><option value="">Select...</option>${sel(FIN_CATS,e?.finance_cat)}</select><span class="err-msg">Required</span></div>
+        <select id="m-fc" onchange="if(this.value==='__new__'){this.style.display='none';g('m-fc-new-wrap').style.display='flex';g('m-fc-input').focus();}">
+          <option value="">Select...</option>${sel(FIN_CATS,e?.finance_cat)}
+          <option value="__new__">+ Add new category...</option>
+        </select>
+        <div id="m-fc-new-wrap" style="display:none;gap:6px;align-items:center">
+          <input type="text" id="m-fc-input" placeholder="Type new finance category..." style="flex:1">
+          <button type="button" class="btn btn-p btn-xs" onclick="addNewCategoryInline('finance')">Add</button>
+          <button type="button" class="btn btn-g btn-xs" onclick="cancelNewCategory('finance')">Cancel</button>
+        </div>
+        <span class="err-msg">Required</span></div>
     </div>
     <div class="fg fg2">
       <div class="field"><label>Marketing Category<span class="req">*</span></label>
-        <select id="m-mc"><option value="">Select...</option>${sel(MKT_CATS,e?.marketing_cat)}</select><span class="err-msg">Required</span></div>
+        <select id="m-mc" onchange="if(this.value==='__new__'){this.style.display='none';g('m-mc-new-wrap').style.display='flex';g('m-mc-input').focus();}">
+          <option value="">Select...</option>${sel(MKT_CATS,e?.marketing_cat)}
+          <option value="__new__">+ Add new category...</option>
+        </select>
+        <div id="m-mc-new-wrap" style="display:none;gap:6px;align-items:center">
+          <input type="text" id="m-mc-input" placeholder="Type new marketing category..." style="flex:1">
+          <button type="button" class="btn btn-p btn-xs" onclick="addNewCategoryInline('marketing')">Add</button>
+          <button type="button" class="btn btn-g btn-xs" onclick="cancelNewCategory('marketing')">Cancel</button>
+        </div>
+        <span class="err-msg">Required</span></div>
       <div class="field"><label>Description</label>
         <input type="text" id="m-desc" value="${esc(e?.description||'')}" placeholder="Brief description..."></div>
     </div>
@@ -1446,6 +1501,52 @@ function cancelNewVendor(){
   g('m-ven-new-wrap').style.display='none';
   g('m-ven-input').value='';
 }
+
+// Shared helper: inline add for Finance / Marketing category dropdowns.
+// type is 'finance' or 'marketing'. Mirrors the vendor inline-add pattern.
+async function addNewCategoryInline(type){
+  const selId = type==='finance' ? 'm-fc' : 'm-mc';
+  const inpId = type==='finance' ? 'm-fc-input' : 'm-mc-input';
+  const wrapId = type==='finance' ? 'm-fc-new-wrap' : 'm-mc-new-wrap';
+  const name = (g(inpId)?.value || '').trim();
+  if(!name){toast('Enter a category name','err');return;}
+  try{
+    const d = await api('/api/categories',{method:'POST',body:JSON.stringify({type, value:name})});
+    // Add to local cache so future modals show it without a reload
+    if(type==='finance'){
+      FIN_CATS.push(d.value);
+      FIN_CATS.sort((a,b)=>a.localeCompare(b));
+    } else {
+      MKT_CATS.push(d.value);
+      MKT_CATS.sort((a,b)=>a.localeCompare(b));
+    }
+    // Insert the new option into the current select and select it
+    const sel = g(selId);
+    const opt = document.createElement('option');
+    opt.value = d.value;
+    opt.textContent = d.value;
+    opt.selected = true;
+    sel.insertBefore(opt, sel.querySelector('option[value="__new__"]'));
+    sel.style.display = '';
+    g(wrapId).style.display = 'none';
+    g(inpId).value = '';
+    toast((type==='finance'?'Finance':'Marketing')+' category "'+d.value+'" added','ok');
+    // Clear any error state on this field
+    sel.closest('.field')?.classList.remove('has-err');
+  }catch(e){
+    toast(e.message || 'Failed to add category', 'err');
+  }
+}
+
+function cancelNewCategory(type){
+  const selId = type==='finance' ? 'm-fc' : 'm-mc';
+  const inpId = type==='finance' ? 'm-fc-input' : 'm-mc-input';
+  const wrapId = type==='finance' ? 'm-fc-new-wrap' : 'm-mc-new-wrap';
+  g(selId).value = '';
+  g(selId).style.display = '';
+  g(wrapId).style.display = 'none';
+  g(inpId).value = '';
+}
 function toggleApp(){
   approveState=!approveState;
   g('app-tog')?.classList.toggle('on',approveState);
@@ -1483,11 +1584,49 @@ async function saveEntry(){
   }
   if(vendorVal==='__new__') vendorVal='';
 
-  const req={mo:'m-mo',bu:'m-bu',fc:'m-fc',mc:'m-mc',pln:'m-pln'};
+  // Same auto-add pattern for Finance Category if user typed but didn't click Add
+  let fcVal = gv('m-fc');
+  const fcNewInput = g('m-fc-input');
+  if((!fcVal || fcVal==='__new__') && fcNewInput && fcNewInput.value.trim()){
+    const newName = fcNewInput.value.trim();
+    try{
+      const d = await api('/api/categories',{method:'POST',body:JSON.stringify({type:'finance',value:newName})});
+      FIN_CATS.push(d.value);
+      fcVal = d.value;
+    }catch(e){
+      // If server says "Exists" treat as success; otherwise keep the typed value
+      fcVal = newName;
+    }
+  }
+  if(fcVal==='__new__') fcVal='';
+  if(fcVal){ const fcEl=g('m-fc'); if(fcEl) fcEl.value = fcVal; }
+
+  // Same for Marketing Category
+  let mcVal = gv('m-mc');
+  const mcNewInput = g('m-mc-input');
+  if((!mcVal || mcVal==='__new__') && mcNewInput && mcNewInput.value.trim()){
+    const newName = mcNewInput.value.trim();
+    try{
+      const d = await api('/api/categories',{method:'POST',body:JSON.stringify({type:'marketing',value:newName})});
+      MKT_CATS.push(d.value);
+      mcVal = d.value;
+    }catch(e){
+      mcVal = newName;
+    }
+  }
+  if(mcVal==='__new__') mcVal='';
+  if(mcVal){ const mcEl=g('m-mc'); if(mcEl) mcEl.value = mcVal; }
+
+  const req={mo:'m-mo',bu:'m-bu',pln:'m-pln'};  // fc/mc validated separately below
   const chEl=g('m-ch');
   if(chEl&&budgetData.channels.length>0) req.ch='m-ch';
   let ok=true;
   Object.values(req).forEach(id=>{const el=g(id),p=el?.closest('.field');if(!el?.value?.trim()){p?.classList.add('has-err');ok=false;}else p?.classList.remove('has-err');});
+  // Validate finance/marketing categories (might be set from newly-added values)
+  const fcField=g('m-fc')?.closest('.field');
+  if(!fcVal){fcField?.classList.add('has-err');ok=false;}else{fcField?.classList.remove('has-err');}
+  const mcField=g('m-mc')?.closest('.field');
+  if(!mcVal){mcField?.classList.add('has-err');ok=false;}else{mcField?.classList.remove('has-err');}
   // Validate vendor separately
   const venField=g('m-ven')?.closest('.field');
   if(!vendorVal){venField?.classList.add('has-err');ok=false;}else{venField?.classList.remove('has-err');}
@@ -1504,7 +1643,7 @@ async function saveEntry(){
     country, quarter:mObj?.q||quarter, month:mo,
     channel_id:channelId, channel_name:channelName,
     activity_id:activityId, activity_name:activityName,
-    bu:g('m-bu').value, finance_cat:g('m-fc').value, marketing_cat:g('m-mc').value,
+    bu:g('m-bu').value, finance_cat:fcVal, marketing_cat:mcVal,
     description:gv('m-desc'),
     planned:parseFloat(gv('m-pln'))||0,
     confirmed:parseFloat(gv('m-con'))||0,
@@ -1701,6 +1840,54 @@ async function renderCfg(){
       </div>
     </div>`;
 
+    // ----- Data Uploads panel (admin + editor) -----
+    if(IS_ADMIN || IS_EDITOR){
+      html+=`<div class="card" style="padding:18px;margin-bottom:14px">
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--t3);margin-bottom:6px">&#x1F4C2; Data Uploads</div>
+        <div style="font-size:11px;color:var(--t3);margin-bottom:12px">Planned upload joins on BigQuery Channel_Group. Line-Item upload handles full manual entries (campaigns, events, etc).</div>
+
+        <div class="upload-panel">
+          <h4>&#x1F4CA; Planned Upload (BQ-shaped)</h4>
+          <div class="sub">4 columns: <code>Country, Month, Channel_Group, Planned</code>. Overwrites planned on matched PM sync rows. <a href="/api/template/planned">&#x1F4E5; Template</a></div>
+          <input type="file" id="plannedUploadFile" accept=".csv,.xlsx,.xls">
+          <button class="btn btn-p btn-sm" onclick="uploadPlanned()">Upload Planned</button>
+          <div id="plannedUploadResult"></div>
+        </div>
+
+        <div class="upload-panel">
+          <h4>&#x1F4CB; Line-Item Upload (full manual entries)</h4>
+          <div class="sub">Up to 16 cols. Minimum: Country + Month + Channel + (Planned or Actual). Dedup on country+month+channel+activity+vendor+description. <a href="/api/template/entries">&#x1F4E5; Template</a></div>
+          <input type="file" id="entriesUploadFile" accept=".csv,.xlsx,.xls">
+          <button class="btn btn-p btn-sm" onclick="uploadEntries()">Upload Line Items</button>
+          <div id="entriesUploadResult"></div>
+        </div>
+      </div>`;
+    }
+
+    // ----- Danger Zone: Bulk Delete (admin only) -----
+    if(IS_ADMIN){
+      html+=`<div class="danger-zone">
+        <details>
+          <summary>&#x26A0;&#xFE0F; Danger Zone &mdash; Bulk Delete Entries</summary>
+          <p style="margin-top:8px;color:var(--da);font-size:11px">Filter entries, preview them, then tick the specific rows you want to delete. No undo.</p>
+          <div class="dz-grid">
+            <div class="field"><label>Country <span class="req">*</span></label>
+              <select id="bdCountry"><option value="">&mdash; Select &mdash;</option>${MARKETS.map(m=>`<option value="${m}">${m}</option>`).join('')}</select></div>
+            <div class="field"><label>Quarter <span class="req">*</span></label>
+              <select id="bdQuarter"><option value="">&mdash; Select &mdash;</option>${QS.map(q=>`<option value="${q}">${q}</option>`).join('')}</select></div>
+            <div class="field"><label>Channel (optional)</label>
+              <input type="text" id="bdChannel" placeholder="Exact name, blank = all"></div>
+            <div class="field"><label>Activity (optional)</label>
+              <input type="text" id="bdActivity" placeholder="Exact name, blank = all"></div>
+            <div class="field"><label>Month (optional)</label>
+              <input type="text" id="bdMonth" placeholder="YYYY-MM, blank = all"></div>
+          </div>
+          <button class="btn btn-p btn-sm" style="margin-top:10px" onclick="bulkDeletePreview()">&#x1F50D; Preview</button>
+          <div id="bdPreviewOut"></div>
+        </details>
+      </div>`;
+    }
+
     g('page').innerHTML=html;
     loadCategoryEditor();
   }catch(e){g('page').innerHTML=`<p style="color:var(--da);padding:24px">${e.message}</p>`;}
@@ -1797,6 +1984,215 @@ async function addCat(type){
 async function deleteCat(id,type){
   if(!confirm('Delete this category?')) return;
   try{await api(`/api/categories/${id}`,{method:'DELETE'});toast('Deleted','info');loadCategoryEditor();loadCategories();}catch(e){toast(e.message||'Failed','err');}
+}
+
+// ===================================================================
+// UPLOAD HANDLERS (Planned + Line Items)
+// ===================================================================
+async function uploadPlanned(inputId, outId){
+  inputId = inputId || 'plannedUploadFile';
+  outId = outId || 'plannedUploadResult';
+  const fileEl = g(inputId), outEl = g(outId);
+  if(!fileEl || !fileEl.files.length){toast('Select a file first','err');return;}
+  const fd = new FormData(); fd.append('file', fileEl.files[0]);
+  if(outEl) outEl.innerHTML = '<div class="upload-result">Uploading...</div>';
+  try{
+    const res = await fetch('/api/upload/planned',{method:'POST',body:fd});
+    const j = await res.json();
+    if(!res.ok || j.error){
+      if(outEl) outEl.innerHTML = '<div class="upload-result err">Error: '+esc(j.error||'Upload failed')+'</div>';
+      return;
+    }
+    renderUploadResult(outEl, j);
+    fileEl.value = '';
+    invalidateCache();
+    toast('Uploaded '+j.saved+' rows','ok');
+  }catch(e){
+    if(outEl) outEl.innerHTML = '<div class="upload-result err">Network error: '+esc(e.message)+'</div>';
+  }
+}
+
+async function uploadEntries(inputId, outId){
+  inputId = inputId || 'entriesUploadFile';
+  outId = outId || 'entriesUploadResult';
+  const fileEl = g(inputId), outEl = g(outId);
+  if(!fileEl || !fileEl.files.length){toast('Select a file first','err');return;}
+  const fd = new FormData(); fd.append('file', fileEl.files[0]);
+  if(outEl) outEl.innerHTML = '<div class="upload-result">Uploading...</div>';
+  try{
+    const res = await fetch('/api/upload/entries',{method:'POST',body:fd});
+    const j = await res.json();
+    if(!res.ok || j.error){
+      if(outEl) outEl.innerHTML = '<div class="upload-result err">Error: '+esc(j.error||'Upload failed')+'</div>';
+      return;
+    }
+    renderUploadResult(outEl, j);
+    fileEl.value = '';
+    invalidateCache();
+    toast('Uploaded '+j.saved+' rows','ok');
+  }catch(e){
+    if(outEl) outEl.innerHTML = '<div class="upload-result err">Network error: '+esc(e.message)+'</div>';
+  }
+}
+
+function renderUploadResult(el, j){
+  if(!el) return;
+  let html = '<div class="upload-result ok">&#x2705; Uploaded. Saved: <b>'+j.saved+'</b>';
+  if(j.overwrote !== undefined) html += ' ('+j.overwrote+' overwrote, '+j.created+' new)';
+  if(j.channels_created) html += ', channels created: <b>'+j.channels_created+'</b>';
+  if(j.activities_created) html += ', activities created: <b>'+j.activities_created+'</b>';
+  if(j.rejected_count) html += ', rejected: <b style="color:var(--da)">'+j.rejected_count+'</b>';
+  html += '</div>';
+
+  if(j.approved_overwrites && j.approved_overwrites.length){
+    html += '<div class="upload-result err" style="margin-top:6px">&#x26A0;&#xFE0F; <b>'+j.approved_overwrites.length+' approved</b> row(s) were overwritten:<div class="detail">';
+    j.approved_overwrites.slice(0,20).forEach(r=>{
+      html += 'row '+r.row+': '+esc(r.country)+'/'+esc(r.month)+' '+esc(r.channel||'')+'/'+esc(r.activity||'')+' &mdash; '+esc(r.description||r.vendor||'(no desc)')+'<br>';
+    });
+    if(j.approved_overwrites.length > 20) html += '... and '+(j.approved_overwrites.length-20)+' more<br>';
+    html += '</div></div>';
+  }
+
+  if(j.rejected && j.rejected.length){
+    html += '<div class="upload-result err" style="margin-top:6px"><details><summary>Rejected rows ('+j.rejected.length+')</summary><div class="detail">';
+    j.rejected.slice(0,50).forEach(r=>{ html += 'row '+r.row+': '+esc(r.reason||'')+'<br>'; });
+    if(j.rejected.length > 50) html += '... and '+(j.rejected.length-50)+' more<br>';
+    html += '</div></details></div>';
+  }
+  el.innerHTML = html;
+}
+
+// ===================================================================
+// BULK DELETE (admin only) - checkbox-based selection
+// ===================================================================
+async function bulkDeletePreview(){
+  const country = gv('bdCountry');
+  const quarter = gv('bdQuarter');
+  const channel = gv('bdChannel');
+  const activity = gv('bdActivity');
+  const month = gv('bdMonth');
+  const outEl = g('bdPreviewOut');
+  if(!country || !quarter){toast('Country and quarter required','err');return;}
+  if(outEl) outEl.innerHTML = '<div class="upload-result">Loading preview...</div>';
+  try{
+    const res = await fetch('/api/bulk_delete/preview',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({country, quarter, channel, activity, month})
+    });
+    const j = await res.json();
+    if(!res.ok || j.error){
+      if(outEl) outEl.innerHTML = '<div class="upload-result err">Error: '+esc(j.error||'Failed')+'</div>';
+      return;
+    }
+    if(j.count === 0){
+      if(outEl) outEl.innerHTML = '<div class="upload-result ok">No matching entries.</div>';
+      return;
+    }
+
+    // Stash the sample rows so we can compute totals on selection changes
+    window._bdSample = j.sample;
+
+    let html = '<div class="upload-result" style="margin-top:10px;background:var(--wab);color:var(--wa)">Found <b>'+j.count+'</b> entries. Total planned: <b>$'+fmt(j.total_planned)+'</b>, total actual: <b>$'+fmt(j.total_actual)+'</b>.';
+    if(j.truncated) html += ' <span style="color:var(--da)"><b>Note:</b> showing first 500 — narrow your filter to see the rest.</span>';
+    html += '</div>';
+
+    html += '<div style="display:flex;gap:8px;align-items:center;margin:10px 0 6px;flex-wrap:wrap">';
+    html += '<button class="btn btn-g btn-xs" type="button" onclick="bdSelectAll(true)">&#x2713; Select all</button>';
+    html += '<button class="btn btn-g btn-xs" type="button" onclick="bdSelectAll(false)">&#x2715; Deselect all</button>';
+    html += '<span style="font-size:11px;color:var(--t3);margin-left:8px"><span id="bdSelCount">0</span> of '+j.sample.length+' selected &middot; $<span id="bdSelPln">0</span> planned / $<span id="bdSelAct">0</span> actual</span>';
+    html += '</div>';
+
+    html += '<div class="preview-sample"><table>';
+    html += '<thead><tr>';
+    html += '<th style="width:28px"><input type="checkbox" id="bdChkHead" onclick="bdSelectAll(this.checked)"></th>';
+    html += '<th>ID</th><th>Month</th><th>Channel</th><th>Activity</th><th>Vendor</th><th>Desc</th>';
+    html += '<th style="text-align:right">Pln</th><th style="text-align:right">Act</th>';
+    html += '</tr></thead><tbody>';
+    j.sample.forEach((s, i)=>{
+      html += '<tr>';
+      html += '<td><input type="checkbox" class="bd-row-chk" data-id="'+esc(s.id)+'" data-pln="'+s.planned+'" data-act="'+s.actual+'" onclick="bdUpdateSelection()"></td>';
+      html += '<td class="mono" style="font-size:10px">'+esc(s.id)+'</td>';
+      html += '<td>'+esc(s.month)+'</td>';
+      html += '<td>'+esc(s.channel)+'</td>';
+      html += '<td>'+esc(s.activity||'')+'</td>';
+      html += '<td>'+esc(s.vendor||'')+'</td>';
+      html += '<td>'+esc((s.description||'').substring(0,40))+'</td>';
+      html += '<td class="mono" style="text-align:right">'+(s.planned?'$'+fmt(s.planned):'')+'</td>';
+      html += '<td class="mono" style="text-align:right">'+(s.actual?'$'+fmt(s.actual):'')+'</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+
+    html += '<div class="confirm-box" style="margin-top:12px">';
+    html += '<div style="font-size:12px;color:var(--t2);margin-bottom:4px">To permanently delete the <b><span id="bdSelCount2">0</span></b> selected entries, type:</div>';
+    html += '<div id="bdPhrase" style="margin:4px 0;padding:6px 10px;background:var(--s2);border-radius:4px;display:inline-block;font-family:\'DM Mono\',monospace;font-size:12px">DELETE 0 SELECTED</div>';
+    html += '<input type="text" id="bdConfirmation" style="width:100%;margin-top:6px" placeholder="Type the phrase above exactly">';
+    html += '<button class="btn btn-d btn-sm" style="margin-top:8px" onclick="bulkDeleteCommit()" id="bdCommitBtn" disabled>&#x26A0;&#xFE0F; Commit Delete</button>';
+    html += '</div>';
+
+    if(outEl) outEl.innerHTML = html;
+    bdUpdateSelection();  // initialize counters at 0
+  }catch(e){
+    if(outEl) outEl.innerHTML = '<div class="upload-result err">Network error: '+esc(e.message)+'</div>';
+  }
+}
+
+function bdSelectAll(checked){
+  document.querySelectorAll('.bd-row-chk').forEach(c=>{c.checked=!!checked});
+  const head=g('bdChkHead'); if(head) head.checked=!!checked;
+  bdUpdateSelection();
+}
+
+function bdUpdateSelection(){
+  const checks=document.querySelectorAll('.bd-row-chk');
+  const selected=[...checks].filter(c=>c.checked);
+  const n=selected.length;
+  let pln=0, act=0;
+  selected.forEach(c=>{
+    pln += parseFloat(c.dataset.pln||0);
+    act += parseFloat(c.dataset.act||0);
+  });
+  const c1=g('bdSelCount'); if(c1) c1.textContent=n;
+  const c2=g('bdSelCount2'); if(c2) c2.textContent=n;
+  const p=g('bdSelPln'); if(p) p.textContent=fmt(pln);
+  const a=g('bdSelAct'); if(a) a.textContent=fmt(act);
+  const phrase=g('bdPhrase'); if(phrase) phrase.textContent='DELETE '+n+' SELECTED';
+  const btn=g('bdCommitBtn'); if(btn) btn.disabled=(n===0);
+  // Sync the header checkbox state
+  const head=g('bdChkHead');
+  if(head){
+    if(n===0) head.checked=false;
+    else if(n===checks.length) head.checked=true;
+    else head.indeterminate=true;
+  }
+}
+
+async function bulkDeleteCommit(){
+  const confirmation = gv('bdConfirmation');
+  const ids = [...document.querySelectorAll('.bd-row-chk:checked')].map(c=>c.dataset.id);
+  if(!ids.length){toast('Tick at least one row','err');return;}
+  if(!confirmation){toast('Type the confirmation phrase','err');return;}
+  const outEl = g('bdPreviewOut');
+  try{
+    const res = await fetch('/api/bulk_delete/commit',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ids, confirmation})
+    });
+    const j = await res.json();
+    if(!res.ok || j.error){
+      if(outEl) outEl.innerHTML = '<div class="upload-result err">Error: '+esc(j.error||'Failed')+'</div>';
+      return;
+    }
+    let msg='<div class="upload-result ok">&#x2705; Deleted '+j.deleted+' of '+j.requested+' entries.';
+    if(j.not_found>0) msg += ' ('+j.not_found+' not found - possibly already deleted.)';
+    msg += '</div>';
+    if(outEl) outEl.innerHTML = msg;
+    toast('Deleted '+j.deleted+' entries','ok');
+    invalidateCache();
+    setTimeout(()=>renderCfg(), 1500);
+  }catch(e){
+    if(outEl) outEl.innerHTML = '<div class="upload-result err">Network error: '+esc(e.message)+'</div>';
+  }
 }
 
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeEM();closeCM();closeAM();closeDM();}});

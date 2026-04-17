@@ -1,6 +1,15 @@
 """
 Finance-format XLSX export matching the APAC Marketing FY26 Tracker layout.
 69 columns: A-BQ
+
+GROUPING (Finance-facing):
+  Primary grouping = channel_name (original behaviour, matches Finance template)
+  Special case: if channel_name == "Performance Marketing" (the umbrella introduced
+  in the refactor), rows are split by finance_cat ("Paid Social-Meta", "Bing",
+  "Paid Social-Douyin", "Local Direct Deals", etc.) so Finance still sees the
+  breakdown they expect. All other channels (Affiliate - CPA & FF,
+  Campaign/Promotions, Events, Influencer/KOL, etc.) group by channel_name
+  exactly as before.
 """
 
 import openpyxl
@@ -8,6 +17,10 @@ from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from datetime import datetime
 from collections import OrderedDict
+
+# The umbrella channel from the refactor. Rows in this channel are split
+# by finance_cat so Finance still sees Meta/Bing/Douyin/LDD as separate lines.
+PM_UMBRELLA = "Performance Marketing"
 
 # ── COLOURS ──────────────────────────────────────────────────
 C_DARK_GREEN  = "1F4E39"
@@ -45,6 +58,18 @@ def _s(c,bg=None,bold=False,fc="000000",size=10,align="left",wrap=False,nf=None,
     c.font=_font(bold,fc,size,italic)
     c.alignment=Alignment(horizontal=align,vertical='center',wrap_text=wrap)
     if nf: c.number_format=nf
+
+
+def _group_key(entry):
+    """Return the Finance-facing grouping label for an entry.
+    - PM umbrella entries → split by finance_cat (falls back to 'Performance Marketing - Other')
+    - Everything else → grouped by channel_name (matches original Finance template)
+    """
+    ch = str(entry.get("channel_name", "") or "").strip()
+    if ch == PM_UMBRELLA:
+        fc = str(entry.get("finance_cat", "") or "").strip()
+        return fc if fc else f"{PM_UMBRELLA} - Other"
+    return ch or entry.get("finance_cat") or "Other"
 
 
 def build_finance_export(output_path, entries, channels, budgets, current_month_key="2026-02"):
@@ -94,9 +119,14 @@ def build_finance_export(output_path, entries, channels, budgets, current_month_
             c=ws.cell(8,base+i,MONTH_DATES[i]); c.number_format='MMM-YY'
             _s(c,bg=bg,bold=True,fc=C_WHITE,size=8,align='center'); c.border=_border()
 
+    # Group entries by Finance-facing category key.
+    # For the "Performance Marketing" umbrella channel, split by finance_cat
+    # (Meta, Bing, Douyin, LDD, etc.). For everything else, group by channel_name
+    # (Affiliate - CPA & FF, Campaign/Promotions, Events, etc.) — matches the
+    # original Finance template row structure.
     cats=OrderedDict()
     for e in entries:
-        cat=e.get("channel_name") or e.get("finance_cat") or "Other"
+        cat = _group_key(e)
         cats.setdefault(cat,[]).append(e)
 
     GRAND_ROW=9; current_row=10; cat_total_rows=[]

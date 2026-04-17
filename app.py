@@ -1,6 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-APAC Marketing Budget Tracker
+APAC Marketing Budget Tracker — Flask app entrypoint.
+
+DATA ACCESS (for Postgres port): all storage calls go through sheets_helper
+and the blueprint modules (api_pm, api_uploads). Swap sheets_helper.py with a
+Postgres-backed version implementing the same function signatures.
+See PORTING.md.
+
 Run:  python app.py
 """
 import os, json, uuid, base64, io, csv
@@ -15,12 +21,14 @@ from sheets_helper import (get_sheet, safe_get_records, get_records_cached,
 from auth import (seed_users, seed_categories, seed_mapping, get_user, get_all_users,
                   require_login, require_admin, check_country_access)
 import api_pm
+import api_uploads
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
 INVOICE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "invoices")
 os.makedirs(INVOICE_DIR, exist_ok=True)
 app.register_blueprint(api_pm.bp)
+app.register_blueprint(api_uploads.bp)
 
 def save_invoice_to_disk(data_url, entry_id, filename):
     try:
@@ -76,8 +84,12 @@ def api_get_categories():
 
 @app.route("/api/categories", methods=["POST"])
 @require_login
-@require_admin
 def api_add_category():
+    # Admin OR editor can add categories (editors often need new finance/marketing
+    # categories while entering line items). Country-role users cannot.
+    role = session.get("role", "")
+    if role not in ("admin", "editor"):
+        return jsonify({"error":"Admin or editor required"}), 403
     d=request.get_json(); ct=d.get("type",""); v=d.get("value","").strip()
     if not ct or not v or ct not in ("bu","finance","marketing"): return jsonify({"error":"Invalid"}),400
     rows=get_records_cached(TAB_CATEGORIES)
@@ -129,6 +141,13 @@ def api_save_budget(country, quarter):
 @require_admin
 def api_add_channel():
     d=request.get_json(); ex=rows_for(TAB_CHANNELS,country=d["country"],quarter=d["quarter"]); cid="ch_"+str(uuid.uuid4())[:8]
+    # Guard against exact-name duplicates (case-insensitive) — returns existing id instead
+    existing = next((c for c in ex if str(c.get("name","")).strip().lower() == str(d["name"]).strip().lower()), None)
+    if existing:
+        return jsonify({"id":str(existing["id"]),"name":str(existing["name"]),
+                        "budget":float(existing.get("budget") or 0),
+                        "sort_order":int(existing.get("sort_order") or 0),
+                        "duplicate":True})
     get_sheet(TAB_CHANNELS).append_row([cid,d["country"],d["quarter"],d["name"],float(d.get("budget",0)),len(ex),datetime.utcnow().isoformat()])
     invalidate_cache(TAB_CHANNELS); return jsonify({"id":cid,"name":d["name"],"budget":float(d.get("budget",0)),"sort_order":len(ex)})
 
@@ -156,6 +175,12 @@ def api_delete_channel(ch_id):
 @require_login
 def api_add_activity():
     d=request.get_json(); ex=rows_for(TAB_ACTIVITIES,channel_id=d["channel_id"]); aid="act_"+str(uuid.uuid4())[:8]
+    # Guard against duplicate (case-insensitive)
+    existing = next((a for a in ex if str(a.get("name","")).strip().lower() == str(d["name"]).strip().lower()), None)
+    if existing:
+        return jsonify({"id":str(existing["id"]),"name":str(existing["name"]),
+                        "sort_order":int(existing.get("sort_order") or 0),
+                        "duplicate":True})
     get_sheet(TAB_ACTIVITIES).append_row([aid,d["channel_id"],d["country"],d["quarter"],d["name"],len(ex),datetime.utcnow().isoformat()])
     invalidate_cache(TAB_ACTIVITIES); return jsonify({"id":aid,"name":d["name"],"sort_order":len(ex)})
 
@@ -322,7 +347,29 @@ def api_reconciliation(quarter):
                 cd.append({"id":ch["id"],"name":ch["name"],"budget":float(ch.get("budget") or 0),"planned":sum(float(e.get("planned") or 0) for e in ce),"confirmed":sum(float(e.get("confirmed") or 0) for e in ce),"actual":sum(float(e.get("actual") or 0) for e in ce),"entries":len(ce),"activities":ad,"unassigned":ui})
             oe=[{"id":e["id"],"month":e.get("month",""),"description":e.get("description",""),"vendor":e.get("vendor",""),"planned":float(e.get("planned") or 0),"actual":float(e.get("actual") or 0)} for e in me if str(e["id"]) not in asgn]
             sp=sum(float(e.get("planned") or 0) for e in me); sa=sum(float(e.get("actual") or 0) for e in me)
-            result.append({"country":mkt,"plan_budget":pb,"sum_planned":sp,"sum_actual":sa,"entries":len(me),"channels_data":cd,"orphan_entries":oe,"var_plan_vs_actual":sa-sp,"flags":{"no_actual":sum(1 for e in me if float(e.get("planned") or 0)>0 and float(e.get("actual") or 0)==0),"no_jira":sum(1 for e in me if not e.get("jira")),"no_invoice":sum(1 for e in me if float(e.get("actual") or 0)>0 and not str(e.get("invoice_names","[]")).strip("[]"))}})
+            # Manual entries = non-PM-sync. PM-synced rows have id prefix "pm_".
+            # Compliance math excludes PM rows from "manual" count since they're auto-generated.
+            manual = [e for e in me if not str(e.get("id","")).startswith("pm_")]
+            auto = [e for e in me if str(e.get("id","")).startswith("pm_")]
+            result.append({
+                "country":mkt,"plan_budget":pb,
+                "sum_planned":sp,
+                "sum_confirmed":sum(float(e.get("confirmed") or 0) for e in me),
+                "sum_actual":sa,
+                "entries":len(me),
+                "entries_manual":len(manual),
+                "entries_auto":len(auto),
+                "channels_data":cd,"orphan_entries":oe,
+                "var_plan_vs_actual":sa-sp,
+                "flags":{
+                    "no_actual":sum(1 for e in me if float(e.get("planned") or 0)>0 and float(e.get("actual") or 0)==0),
+                    "no_jira":sum(1 for e in me if not e.get("jira")),
+                    "no_invoice":sum(1 for e in me if float(e.get("actual") or 0)>0 and not str(e.get("invoice_names","[]")).strip("[]")),
+                    # Manual-only counts — exclude PM sync rows because they don't need JIRA tickets
+                    "no_jira_manual":sum(1 for e in manual if not e.get("jira")),
+                    "no_invoice_manual":sum(1 for e in manual if float(e.get("actual") or 0)>0 and not str(e.get("invoice_names","[]")).strip("[]")),
+                }
+            })
         return jsonify(result)
     except Exception as e:
         import traceback; traceback.print_exc(); return jsonify({"error":str(e)}),500
@@ -353,10 +400,9 @@ def api_analytics():
         var.sort(key=lambda x:abs(x["variance"]),reverse=True)
         wa=sum(1 for e in ae if float(e.get("actual") or 0)>0); wj=sum(1 for e in ae if e.get("jira")); ap=sum(1 for e in ae if str(e.get("approved","")).lower()=="true")
         MC=["HKG","CN","TW","TH","VN","SG","MY","MN","IN","APAC","ID","PH"]
-        chm={};
+        chm={}
         for e in ae: cid=str(e.get("channel_id","")); mc=str(e.get("marketing_cat","")); chm[cid]=mc if cid and mc else chm.get(cid,"")
         bbcm=defaultdict(lambda:defaultdict(float)); pbcm=defaultdict(lambda:defaultdict(float)); abcm=defaultdict(lambda:defaultdict(float)); amcs=set()
-        for c in ac: cid=str(c.get("id","")); co=str(c.get("country","")); mc=chm.get(cid,"");
         for c in ac:
             cid=str(c.get("id","")); co=str(c.get("country","")); mc=chm.get(cid,"")
             if mc and co: bbcm[mc][co]+=float(c.get("budget") or 0)
@@ -396,7 +442,7 @@ def api_export_xlsx():
     if u!=ADMIN_MARKET: ae=[e for e in ae if str(e.get("country",""))==u]; ac=[c for c in ac if str(c.get("country",""))==u]; ab=[b for b in ab if str(b.get("country",""))==u]
     tmp=tempfile.NamedTemporaryFile(suffix=".xlsx",delete=False); tmp.close()
     try: build_finance_export(tmp.name,ae,ac,ab)
-    except: os.unlink(tmp.name); return jsonify({"error":"Export failed"}),500
+    except Exception as ex: os.unlink(tmp.name); import traceback; traceback.print_exc(); return jsonify({"error":f"Export failed: {ex}"}),500
     resp=send_file(tmp.name,mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",as_attachment=True,download_name=f"APAC_FY26_{'ALL' if u==ADMIN_MARKET else u}_{datetime.now().strftime('%Y-%m-%d')}.xlsx")
     @resp.call_on_close
     def cleanup():
@@ -420,7 +466,7 @@ def api_invoice(entry_id, inv_idx):
         except: pass
     return "Not found",404
 
-# -- BULK IMPORT ----------------------------------------------------------
+# -- LEGACY BULK IMPORT (kept — used by existing Config page) --------------
 @app.route("/api/import/channels", methods=["POST"])
 @require_login
 @require_admin
@@ -437,18 +483,19 @@ def api_import_channels():
             st=1 if lines and any(k in lines[0].lower() for k in ['country','quarter','channel']) else 0
             import csv as _c; parsed=list(_c.reader(lines[st:]))
     except Exception as e: return jsonify({"error":str(e)}),400
-    wc=get_sheet(TAB_CHANNELS); wb2=get_sheet(TAB_BUDGETS); ec=safe_get_records(wc,TAB_CHANNELS); eb=safe_get_records(wb2,TAB_BUDGETS); now=datetime.utcnow().isoformat(); saved=skipped=0; sr=[]
+    wc=get_sheet(TAB_CHANNELS); wb2=get_sheet(TAB_BUDGETS); ec=safe_get_records(wc,TAB_CHANNELS); eb=safe_get_records(wb2,TAB_BUDGETS); now=datetime.utcnow().isoformat(); saved=skipped_dups=0; sr=[]
     for row in parsed:
-        if len(row)<3: skipped+=1; continue
+        if len(row)<3: continue
         co,q,nm=row[0].strip(),row[1].strip().upper(),row[2].strip(); bv=float(str(row[3]).replace(',','').replace('$','').strip() or 0) if len(row)>=4 else 0
-        if not co or not q or not nm: skipped+=1; continue
+        if not co or not q or not nm: continue
         if not q.startswith('Q'): q='Q'+q
         if not any(r['country']==co and r['quarter']==q for r in eb): wb2.append_row([str(uuid.uuid4())[:8],co,q,0,now]); eb.append({'country':co,'quarter':q,'total_budget':0})
-        if any(r['country']==co and r['quarter']==q and str(r['name']).strip()==nm for r in ec): skipped+=1; continue
+        # Case-insensitive dedup check
+        if any(r['country']==co and r['quarter']==q and str(r['name']).strip().lower()==nm.lower() for r in ec): skipped_dups+=1; continue
         cid="ch_"+str(uuid.uuid4())[:8]; so=len([r for r in ec if r['country']==co and r['quarter']==q])
         wc.append_row([cid,co,q,nm,bv,so,now]); ec.append({'id':cid,'country':co,'quarter':q,'name':nm,'budget':bv}); saved+=1; sr.append({"country":co,"quarter":q,"name":nm,"budget":bv})
     invalidate_cache(TAB_CHANNELS); invalidate_cache(TAB_BUDGETS)
-    return jsonify({"ok":True,"saved":saved,"skipped":skipped,"rows":sr})
+    return jsonify({"ok":True,"saved":saved,"skipped":skipped_dups,"skipped_dups":skipped_dups,"rows":sr})
 
 @app.route("/api/import/budgets", methods=["POST"])
 @require_login
@@ -478,6 +525,25 @@ def api_import_budgets():
         else: ws.append_row([str(uuid.uuid4())[:8],co,q,tot,now]); ex.append({'country':co,'quarter':q,'total_budget':tot})
         saved+=1; sr.append({"country":co,"quarter":q,"total":tot})
     invalidate_cache(TAB_BUDGETS); return jsonify({"ok":True,"saved":saved,"skipped":skipped,"rows":sr})
+
+# Legacy template endpoints (kept for existing UI compatibility)
+@app.route("/api/budget_template")
+@require_login
+def api_budget_template():
+    out=io.StringIO(); w=csv.writer(out)
+    w.writerow(["Country","Quarter","Total Budget (AUD)"])
+    w.writerow(["TH","Q1","150000"]); w.writerow(["HKG","Q1","180000"])
+    return send_file(io.BytesIO(out.getvalue().encode("utf-8-sig")),mimetype="text/csv",as_attachment=True,download_name="budget_template.csv")
+
+@app.route("/api/channel_template")
+@require_login
+def api_channel_template():
+    out=io.StringIO(); w=csv.writer(out)
+    w.writerow(["Country","Quarter","Channel Name","Budget (AUD)"])
+    w.writerow(["TH","Q1","Performance Marketing","80000"])
+    w.writerow(["TH","Q1","Affiliate - CPA & FF","10000"])
+    w.writerow(["TH","Q1","Campaign/Promotions","15000"])
+    return send_file(io.BytesIO(out.getvalue().encode("utf-8-sig")),mimetype="text/csv",as_attachment=True,download_name="channel_template.csv")
 
 if __name__ == "__main__":
     try: ensure_entry_headers()

@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Configuration constants and channel mappings."""
+"""
+Configuration constants, channel mappings, and normalisation helpers.
+
+DATA ACCESS: this module is storage-agnostic. No direct Sheets/DB calls.
+Used by: app.py, api_pm.py, api_uploads.py, migrate_channels.py, sheets_helper.py, export_xlsx.py
+"""
 import os
 
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-change-in-production")
@@ -48,7 +53,25 @@ VENDOR_HEADERS = ["id","name","country","added_by","created_at"]
 USER_HEADERS = ["username","password_hash","display_name","role","markets","created_at"]
 CATEGORY_HEADERS = ["id","type","value","sort_order","created_at"]
 
-# Default users
+# ═══════════════════════════════════════════════════════════════════
+#  UMBRELLA CHANNEL STRUCTURE
+# ═══════════════════════════════════════════════════════════════════
+# The tracker has exactly TWO auto-populated channels:
+#   1. "Performance Marketing"  — umbrella for all Paid Social + PM + LDD
+#   2. "Affiliate - CPA & FF"   — standalone, for BQ Affiliates rows
+#
+# PM sync MAY NOT create new channels. If a market lacks these two
+# channels, sync skips the market with a clear reason.
+# ═══════════════════════════════════════════════════════════════════
+
+PM_UMBRELLA_CHANNEL = "Performance Marketing"
+AFFILIATE_CHANNEL = "Affiliate - CPA & FF"
+
+# Activities under Performance Marketing (10 from BQ + 1 manual for LDD)
+PM_ACTIVITIES = ["Meta","TikTok","Douyin","RedNote","BiliBili",
+                 "Bing","AdRoll","Apple Search Ads","TradingView","Others","LDD"]
+
+# Default users (unchanged)
 DEFAULT_USERS = [
     ("pepper", "APAC@123", "Pepper (Admin)", "admin", "ALL"),
     ("affiliate", "Affiliate@123", "Affiliate Manager", "editor", "ALL"),
@@ -61,6 +84,8 @@ DEFAULT_USERS = [
     ("roapac_sales", "ROAPAC@123", "Rest of APAC Sales", "country", "ID,IN,MY,SG,MN,PH,TW"),
 ]
 
+# Channel-name keyword mapping for auto-populating BU/Finance/Marketing categories
+# Used both for manual entries and Line-Item CSV upload when those fields are blank
 DEFAULT_MAPPING = [
     ("performance",  "Marketing : Programmatic - 613000009XXX",          "PPC",                  "PPC / Search"),
     ("ppc",          "Marketing : Programmatic - 613000009XXX",          "PPC",                  "PPC / Search"),
@@ -118,25 +143,128 @@ PM_COUNTRY_MAP = {
     'TW':'TW','PH':'PH','MN':'MN',
 }
 
-# PM Channel_Group -> Tracker channel mapping
-# Paid Social: Meta, TikTok, Douyin, RedNote, BiliBili
-# Performance Marketing (PM): Bing, AdRoll, Apple Search Ads, TradingView, Others
-# Affiliate: Affiliates
-# Skip: Organic, IB
+# ═══════════════════════════════════════════════════════════════════
+#  PM CHANNEL MAP — rewritten for umbrella structure
+#  Every BQ Channel_Group maps to:
+#    channel_name:  which tracker CHANNEL it lands under (must already exist)
+#    activity_name: which ACTIVITY under that channel (auto-created if missing)
+#    bu / finance_cat / marketing_cat: default classification tags
+# ═══════════════════════════════════════════════════════════════════
 PM_CHANNEL_MAP = {
-    'Affiliates':       {'channel_name':'Affiliate','bu':'Marketing : Affiliate - 613000002XXX','finance_cat':'Affiliate','marketing_cat':'Affiliate- CPA & FF'},
-    'Meta':             {'channel_name':'Paid Social','bu':'Marketing : Paid Social / YouTube - 613000004XXX','finance_cat':'Paid Social-Meta','marketing_cat':'Paid Social'},
-    'TikTok':           {'channel_name':'Paid Social','bu':'Marketing : Paid Social / YouTube - 613000004XXX','finance_cat':'Paid Social-Meta','marketing_cat':'Paid Social'},
-    'Douyin':           {'channel_name':'Paid Social','bu':'Marketing : Paid Social / YouTube - 613000004XXX','finance_cat':'Paid Social-Douyin','marketing_cat':'Paid Social'},
-    'RedNote':          {'channel_name':'Paid Social','bu':'Marketing : Paid Social / YouTube - 613000004XXX','finance_cat':'Paid Social-Rednote','marketing_cat':'Paid Social'},
-    'BiliBili':         {'channel_name':'Paid Social','bu':'Marketing : Paid Social / YouTube - 613000004XXX','finance_cat':'Paid Social-Meta','marketing_cat':'Paid Social'},
-    'Bing':             {'channel_name':'Performance Marketing (PM)','bu':'Marketing : Programmatic - 613000009XXX','finance_cat':'Bing','marketing_cat':'PPC / Search'},
-    'AdRoll':           {'channel_name':'Performance Marketing (PM)','bu':'Marketing : Programmatic - 613000009XXX','finance_cat':'Programmatic','marketing_cat':'Programmatic'},
-    'Apple Search Ads': {'channel_name':'Performance Marketing (PM)','bu':'Marketing : Programmatic - 613000009XXX','finance_cat':'PPC','marketing_cat':'PPC / Search'},
-    'TradingView':      {'channel_name':'Performance Marketing (PM)','bu':'Marketing : Programmatic - 613000009XXX','finance_cat':'PPC','marketing_cat':'PPC / Search'},
-    'Others':           {'channel_name':'Performance Marketing (PM)','bu':'Marketing : Programmatic - 613000009XXX','finance_cat':'PPC','marketing_cat':'PPC / Search'},
+    # Paid Social cluster → Performance Marketing / "<ChannelGroup>" activity
+    'Meta':     {'channel_name':PM_UMBRELLA_CHANNEL,'activity_name':'Meta',    'bu':'Marketing : Paid Social / YouTube - 613000004XXX','finance_cat':'Paid Social-Meta',    'marketing_cat':'Paid Social'},
+    'TikTok':   {'channel_name':PM_UMBRELLA_CHANNEL,'activity_name':'TikTok',  'bu':'Marketing : Paid Social / YouTube - 613000004XXX','finance_cat':'Paid Social-Meta',    'marketing_cat':'Paid Social'},
+    'Douyin':   {'channel_name':PM_UMBRELLA_CHANNEL,'activity_name':'Douyin',  'bu':'Marketing : Paid Social / YouTube - 613000004XXX','finance_cat':'Paid Social-Douyin',  'marketing_cat':'Paid Social'},
+    'RedNote':  {'channel_name':PM_UMBRELLA_CHANNEL,'activity_name':'RedNote', 'bu':'Marketing : Paid Social / YouTube - 613000004XXX','finance_cat':'Paid Social-Rednote', 'marketing_cat':'Paid Social'},
+    'BiliBili': {'channel_name':PM_UMBRELLA_CHANNEL,'activity_name':'BiliBili','bu':'Marketing : Paid Social / YouTube - 613000004XXX','finance_cat':'Paid Social-Meta',    'marketing_cat':'Paid Social'},
+    # PM cluster → Performance Marketing / "<ChannelGroup>" activity
+    'Bing':             {'channel_name':PM_UMBRELLA_CHANNEL,'activity_name':'Bing',            'bu':'Marketing : Programmatic - 613000009XXX','finance_cat':'Bing',        'marketing_cat':'PPC / Search'},
+    'AdRoll':           {'channel_name':PM_UMBRELLA_CHANNEL,'activity_name':'AdRoll',          'bu':'Marketing : Programmatic - 613000009XXX','finance_cat':'Programmatic','marketing_cat':'Programmatic'},
+    'Apple Search Ads': {'channel_name':PM_UMBRELLA_CHANNEL,'activity_name':'Apple Search Ads','bu':'Marketing : Programmatic - 613000009XXX','finance_cat':'PPC',         'marketing_cat':'PPC / Search'},
+    'TradingView':      {'channel_name':PM_UMBRELLA_CHANNEL,'activity_name':'TradingView',     'bu':'Marketing : Programmatic - 613000009XXX','finance_cat':'PPC',         'marketing_cat':'PPC / Search'},
+    'Others':           {'channel_name':PM_UMBRELLA_CHANNEL,'activity_name':'Others',          'bu':'Marketing : Programmatic - 613000009XXX','finance_cat':'PPC',         'marketing_cat':'PPC / Search'},
+    # Affiliate cluster → Affiliate - CPA & FF channel
+    'Affiliates': {'channel_name':AFFILIATE_CHANNEL,'activity_name':'Affiliate','bu':'Marketing : Affiliate - 613000002XXX','finance_cat':'Affiliate','marketing_cat':'Affiliate- CPA & FF'},
 }
-PM_DEFAULT_MAPPING = {'channel_name':'Performance Marketing (PM)','bu':'Marketing : Programmatic - 613000009XXX','finance_cat':'PPC','marketing_cat':'PPC / Search'}
+
+# Fallback when a Channel_Group doesn't normalise to anything known
+PM_DEFAULT_MAPPING = {'channel_name':PM_UMBRELLA_CHANNEL,'activity_name':'Others',
+                      'bu':'Marketing : Programmatic - 613000009XXX','finance_cat':'PPC','marketing_cat':'PPC / Search'}
+
+# ═══════════════════════════════════════════════════════════════════
+#  NORMALISATION — "Meta HK", "meta-agency", "FB" → "Meta"
+# ═══════════════════════════════════════════════════════════════════
+# Prefix match: any Channel_Group starting with one of these collapses to it.
+# Matches in order, longest-first (so "Apple Search Ads" beats "Apple").
+CHANNEL_GROUP_PREFIXES = [
+    'Apple Search Ads',   # must come before 'Apple' (we don't have 'Apple' but belt-and-braces)
+    'TradingView',
+    'BiliBili',
+    'Affiliates',
+    'AdRoll',
+    'RedNote',
+    'Douyin',
+    'TikTok',
+    'Others',
+    'Meta',
+    'Bing',
+]
+
+# Exact-word aliases (case-insensitive) for common variants in uploaded files
+CHANNEL_GROUP_ALIAS_MAP = {
+    'FB':'Meta', 'FACEBOOK':'Meta', 'INSTAGRAM':'Meta', 'IG':'Meta',
+    'APPLE':'Apple Search Ads', 'ASA':'Apple Search Ads',
+    'AFFILIATE':'Affiliates', 'AFF':'Affiliates',
+    'TRADING VIEW':'TradingView', 'TRADINGVIEW':'TradingView', 'TV':'TradingView',
+    'ADROLL':'AdRoll',
+    'REDNOTE':'RedNote', 'RED NOTE':'RedNote', 'XIAOHONGSHU':'RedNote',
+    'BILIBILI':'BiliBili', 'BILI':'BiliBili', 'BILI BILI':'BiliBili',
+    'TIK TOK':'TikTok', 'TIKTOK':'TikTok',
+    'DOUYIN':'Douyin',
+    'BING':'Bing', 'MICROSOFT ADS':'Bing', 'MICROSOFT':'Bing',
+    'META':'Meta',
+}
+
+# Country code aliases for uploaded files
+COUNTRY_ALIAS_MAP = {
+    'HK':'HKG', 'HONGKONG':'HKG', 'HONG KONG':'HKG', 'HK SAR':'HKG',
+    'THAILAND':'TH',
+    'VIETNAM':'VN', 'VIET NAM':'VN',
+    'TAIWAN':'TW',
+    'SINGAPORE':'SG',
+    'INDONESIA':'ID',
+    'INDIA':'IN',
+    'PHILIPPINES':'PH', 'PHILLIPINES':'PH',
+    'MONGOLIA':'MN',
+    'MALAYSIA':'MY',
+    'CHINA':'CN', 'PRC':'CN', 'MAINLAND CHINA':'CN',
+}
+
+
+def normalise_channel_group(raw):
+    """Collapse any Channel_Group variant to its canonical PM_CHANNEL_MAP key.
+    Examples:  'Meta HK' → 'Meta',  'FB' → 'Meta',  'meta-agency' → 'Meta',
+               'Apple Search Ads' → 'Apple Search Ads',  'ASA' → 'Apple Search Ads',
+               'Affiliates - Global' → 'Affiliates'
+    Returns canonical key if known, else the cleaned-up raw string."""
+    s = str(raw or '').strip()
+    if not s:
+        return s
+    # 1. exact match against known keys
+    if s in PM_CHANNEL_MAP:
+        return s
+    # 2. alias table (case/whitespace-insensitive)
+    up = ' '.join(s.upper().split())
+    if up in CHANNEL_GROUP_ALIAS_MAP:
+        return CHANNEL_GROUP_ALIAS_MAP[up]
+    # 3. prefix match — longest-first ordering enforced by list order
+    low = s.lower()
+    for canon in CHANNEL_GROUP_PREFIXES:
+        cl = canon.lower()
+        # match "meta" as whole word prefix, followed by space/dash/_ or EOL
+        if low == cl or low.startswith(cl + ' ') or low.startswith(cl + '-') or low.startswith(cl + '_') or low.startswith(cl + '/'):
+            return canon
+    # 4. last resort: return as-is (caller will use PM_DEFAULT_MAPPING)
+    return s
+
+
+def normalise_country(raw):
+    """Map common country-name variants to tracker codes. Returns upper-cased input
+    if no alias matches (caller should validate against MARKETS list)."""
+    s = str(raw or '').strip().upper()
+    if not s:
+        return s
+    if s in (m.upper() for m in MARKETS):
+        return s if s != 'HKG' else 'HKG'  # already canonical
+    # direct alias
+    if s in COUNTRY_ALIAS_MAP:
+        return COUNTRY_ALIAS_MAP[s]
+    # normalised whitespace
+    compact = ' '.join(s.split())
+    if compact in COUNTRY_ALIAS_MAP:
+        return COUNTRY_ALIAS_MAP[compact]
+    return s
+
 
 # FY26 month -> quarter
 MONTH_TO_QUARTER = {7:'Q1',8:'Q1',9:'Q1',10:'Q2',11:'Q2',12:'Q2',1:'Q3',2:'Q3',3:'Q3',4:'Q4',5:'Q4',6:'Q4'}
@@ -152,3 +280,14 @@ MONTH_SHORT = {
     "2026-01":"Jan 26","2026-02":"Feb 26","2026-03":"Mar 26",
     "2026-04":"Apr 26","2026-05":"May 26","2026-06":"Jun 26",
 }
+VALID_MONTH_KEYS = set(MONTH_SHORT.keys())
+
+
+def month_to_quarter(month_key):
+    """'2025-07' -> 'Q1'. Returns empty string if malformed."""
+    try:
+        parts = str(month_key).strip().split('-')
+        m = int(parts[1])
+        return MONTH_TO_QUARTER.get(m, '')
+    except Exception:
+        return ''
