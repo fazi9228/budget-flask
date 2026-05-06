@@ -392,10 +392,13 @@ def api_reconciliation(quarter):
 @require_login
 def api_analytics():
     try:
-        qf=request.args.get("quarter",""); cf=request.args.get("country","")
+        qf=request.args.get("quarter",""); cf=request.args.get("country",""); mf=request.args.get("month","")
         ae=get_records_cached(TAB_ENTRIES); ab=get_records_cached(TAB_BUDGETS); ac=get_records_cached(TAB_CHANNELS)
         if qf: ae=[e for e in ae if str(e.get("quarter",""))==qf]; ab=[b for b in ab if str(b.get("quarter",""))==qf]; ac=[c for c in ac if str(c.get("quarter",""))==qf]
         if cf: ae=[e for e in ae if str(e.get("country",""))==cf]; ab=[b for b in ab if str(b.get("country",""))==cf]; ac=[c for c in ac if str(c.get("country",""))==cf]
+        if mf:
+            months = {m.strip() for m in mf.split(",") if m.strip()}
+            ae = [e for e in ae if str(e.get("month","")) in months]
         tb=sum(float(b.get("total_budget") or 0) for b in ab); tp=sum(float(e.get("planned") or 0) for e in ae); tc=sum(float(e.get("confirmed") or 0) for e in ae); ta=sum(float(e.get("actual") or 0) for e in ae)
         bc=defaultdict(lambda:{"budget":0,"planned":0,"confirmed":0,"actual":0,"entries":0})
         for b in ab: bc[str(b["country"])]["budget"]+=float(b.get("total_budget") or 0)

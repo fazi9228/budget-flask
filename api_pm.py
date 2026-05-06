@@ -135,13 +135,20 @@ def preview():
         return jsonify({"error": f"BigQuery read failed: {str(e)}"}), 500
 
 
+def _norm(s):
+    return str(s or "").strip().lower()
+
+
 def _find_channel(existing_channels, country, quarter, channel_name):
     """Return the channel dict for an EXISTING channel, or None.
-    Sync never creates channels — this is a pure lookup."""
+    Sync never creates channels — this is a pure lookup.
+    Match is case-insensitive + trim-both-sides to survive minor name drift
+    (e.g. trailing whitespace, casing changes after a rename)."""
+    target = _norm(channel_name)
     for c in existing_channels:
         if (str(c.get("country","")) == country
             and str(c.get("quarter","")) == quarter
-            and str(c.get("name","")).strip() == channel_name):
+            and _norm(c.get("name","")) == target):
             return c
     return None
 
@@ -149,11 +156,12 @@ def _find_channel(existing_channels, country, quarter, channel_name):
 def _ensure_activity(ws_activities, existing_activities, channel_id, country, quarter, activity_name, now):
     """Find-or-create an activity under a channel. Idempotent.
     Returns (activity_id, created_flag)."""
+    target = _norm(activity_name)
     for a in existing_activities:
         if (str(a.get("channel_id","")) == channel_id
             and str(a.get("country","")) == country
             and str(a.get("quarter","")) == quarter
-            and str(a.get("name","")).strip() == activity_name):
+            and _norm(a.get("name","")) == target):
             return str(a["id"]), False
     aid = "act_" + str(uuid.uuid4())[:8]
     so = len([a for a in existing_activities if str(a.get("channel_id","")) == channel_id])

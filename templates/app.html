@@ -565,7 +565,11 @@ async function renderAnalytics(){
   g('page').innerHTML='<div class="spinner"></div>';
   try{
     const aq = window._analyticsQ || '';
-    const data = await api(`/api/analytics${aq?'?quarter='+aq:''}`);
+    const am = window._analyticsM || '';
+    const params=[];
+    if(aq) params.push('quarter='+encodeURIComponent(aq));
+    if(am) params.push('month='+encodeURIComponent(am));
+    const data = await api('/api/analytics'+(params.length?'?'+params.join('&'):''));
     _anRawData = data;
     buildAnalyticsPage(data);
   }catch(e){
@@ -581,12 +585,14 @@ function buildAnalyticsPage(data){
   const anCountries = (data.by_country||[]).map(c=>c.country).sort();
   const anChannels = (data.by_channel||[]).filter(c=>c.actual>0||c.planned>0).map(c=>c.channel).sort();
   const anMktCats = (data.by_marketing_cat||[]).filter(c=>c.actual>0||c.planned>0).map(c=>c.category).sort();
+  // Restrict month list to current quarter when one is selected
+  const anMonthLabels = (aq?MONTHS.filter(m=>m.q===aq):MONTHS).map(m=>m.l);
 
   let html=`<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px">
     <div style="font-size:16px;font-weight:600">&#x1F4C8; Analytics</div>
     <div class="qtabs">
-      <button class="qtab ${aq===''?'active':''}" onclick="window._analyticsQ='';renderAnalytics()">All</button>
-      ${QS.map(q2=>`<button class="qtab ${q2===aq?'active':''}" onclick="window._analyticsQ='${q2}';renderAnalytics()">${q2}</button>`).join('')}
+      <button class="qtab ${aq===''?'active':''}" onclick="window._analyticsQ='';window._analyticsM='';renderAnalytics()">All</button>
+      ${QS.map(q2=>`<button class="qtab ${q2===aq?'active':''}" onclick="window._analyticsQ='${q2}';window._analyticsM='';renderAnalytics()">${q2}</button>`).join('')}
     </div>
   </div>`;
 
@@ -595,7 +601,8 @@ function buildAnalyticsPage(data){
     ${ddFilter('an_co','Country',anCountries,function(){anApplyFilters()})}
     ${ddFilter('an_ch','Channel',anChannels,function(){anApplyFilters()})}
     ${ddFilter('an_mc','Marketing Cat',anMktCats,function(){anApplyFilters()})}
-    <button class="btn btn-g btn-xs" onclick="ddClearAll();anApplyFilters()">Clear Filters</button>
+    ${ddFilter('an_mo','Month',anMonthLabels,function(){anApplyMonth()})}
+    <button class="btn btn-g btn-xs" onclick="ddClearAll();window._analyticsM='';renderAnalytics()">Clear Filters</button>
     <span id="an-f-info" style="font-size:10px;color:var(--t3)"></span>
   </div>`;
 
@@ -747,6 +754,7 @@ function buildAnalyticsPage(data){
 
   g('page').innerHTML = html;
   setTimeout(()=>anBuildCharts(data),100);
+  anRestoreMonthSelection();
 }
 
 function anBuildCharts(data, filterCo, filterCh, filterMc){
@@ -807,6 +815,30 @@ function anBuildCharts(data, filterCo, filterCh, filterMc){
         {label:'Actual',data:mc.map(c=>c.actual),backgroundColor:'rgba(28,79,60,0.6)',borderRadius:3},
       ]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{font:{size:11}}}},scales:{x:{ticks:{callback:v=>'$'+fmt(v)},grid:{color:'rgba(0,0,0,.05)'}},y:{grid:{display:false}}}}});
   }
+}
+
+// Month filter triggers a refetch (server-side filter on entries)
+function anApplyMonth(){
+  const labels = ddGetValues('an_mo_dd');
+  const labelToKey = {};
+  MONTHS.forEach(function(m){ labelToKey[m.l] = m.v; });
+  const keys = labels.map(function(l){ return labelToKey[l]; }).filter(Boolean);
+  window._analyticsM = keys.join(',');
+  renderAnalytics();
+}
+
+// Re-check Month checkboxes after a refetch so the dropdown reflects current state
+function anRestoreMonthSelection(){
+  const am = window._analyticsM || '';
+  if(!am) return;
+  const keys = new Set(am.split(',').filter(Boolean));
+  const keyToLabel = {};
+  MONTHS.forEach(function(m){ keyToLabel[m.v] = m.l; });
+  const wantLabels = new Set([...keys].map(function(k){ return keyToLabel[k]; }).filter(Boolean));
+  document.querySelectorAll('#an_mo_dd_p input').forEach(function(cb){
+    if(wantLabels.has(cb.value)){ cb.checked = true; }
+  });
+  ddChange('an_mo_dd');
 }
 
 // Analytics filter: update stats, charts, tables, matrix
@@ -1736,10 +1768,17 @@ async function saveEntry(){
 function openDM(id){delEntryId=id;g('ov-del').classList.add('open');}
 function closeDM(){g('ov-del').classList.remove('open');}
 async function confirmDel(){
-  entries=entries.filter(e=>e.id!==delEntryId);
-  _cache.entries=entries;
-  closeDM();toast('Deleted','info');render();
-  api(`/api/entries/${delEntryId}`,{method:'DELETE'}).catch(()=>{invalidateCache();renderDash();});
+  const id=delEntryId;
+  try{
+    await api(`/api/entries/${id}`,{method:'DELETE'});
+    entries=entries.filter(e=>e.id!==id);
+    _cache.entries=entries;
+    closeDM();toast('Deleted','ok');render();
+  }catch(e){
+    closeDM();
+    toast(e.message||'Cannot delete this entry','err');
+    invalidateCache();renderDash();
+  }
 }
 
 function openAM(actId,name,chanId){
@@ -1769,9 +1808,14 @@ async function saveAct(){
 }
 async function deleteAct(id){
   if(!confirm('Delete this activity?')) return;
-  budgetData.channels.forEach(ch=>{ch.activities=(ch.activities||[]).filter(a=>a.id!==id);});
-  _cache.budget=budgetData;toast('Deleted','info');render();
-  api(`/api/activities/${id}`,{method:'DELETE'}).catch(()=>{invalidateCache();renderDash();});
+  try{
+    await api(`/api/activities/${id}`,{method:'DELETE'});
+    budgetData.channels.forEach(ch=>{ch.activities=(ch.activities||[]).filter(a=>a.id!==id);});
+    _cache.budget=budgetData;toast('Deleted','ok');render();
+  }catch(e){
+    toast(e.message||'Cannot delete this activity','err');
+    invalidateCache();renderDash();
+  }
 }
 
 function openCM(id,name,budget){
@@ -1806,9 +1850,14 @@ async function saveChan(){
 
 async function delChan(id){
   if(!confirm('Delete this channel?')) return;
-  budgetData.channels=budgetData.channels.filter(c=>c.id!==id);
-  _cache.budget=budgetData;render();toast('Deleted','info');
-  api(`/api/channels/${id}`,{method:'DELETE'}).catch(()=>{invalidateCache();renderCfg();});
+  try{
+    await api(`/api/channels/${id}`,{method:'DELETE'});
+    budgetData.channels=budgetData.channels.filter(c=>c.id!==id);
+    _cache.budget=budgetData;render();toast('Deleted','ok');
+  }catch(e){
+    toast(e.message||'Cannot delete this channel','err');
+    invalidateCache();renderCfg();
+  }
 }
 
 // ===================================================================

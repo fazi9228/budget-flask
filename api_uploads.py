@@ -221,12 +221,16 @@ def upload_planned():
         ws_budgets.append_row([str(uuid.uuid4())[:8], country, quarter, 0, now])
         existing_budgets.append({"country":country, "quarter":quarter, "total_budget":0})
 
+    def _norm(s):
+        return str(s or "").strip().lower()
+
     def ensure_channel(country, quarter, channel_name):
         nonlocal channels_created
+        target = _norm(channel_name)
         for c in existing_channels:
             if (str(c.get("country","")) == country
                 and str(c.get("quarter","")) == quarter
-                and str(c.get("name","")).strip() == channel_name):
+                and _norm(c.get("name","")) == target):
                 return str(c["id"])
         cid = "ch_" + str(uuid.uuid4())[:8]
         so = len([c for c in existing_channels if str(c.get("country",""))==country and str(c.get("quarter",""))==quarter])
@@ -239,11 +243,12 @@ def upload_planned():
 
     def ensure_activity(channel_id, country, quarter, activity_name):
         nonlocal activities_created
+        target = _norm(activity_name)
         for a in existing_activities:
             if (str(a.get("channel_id","")) == channel_id
                 and str(a.get("country","")) == country
                 and str(a.get("quarter","")) == quarter
-                and str(a.get("name","")).strip() == activity_name):
+                and _norm(a.get("name","")) == target):
                 return str(a["id"])
         aid = "act_" + str(uuid.uuid4())[:8]
         so = len([a for a in existing_activities if str(a.get("channel_id",""))==channel_id])
