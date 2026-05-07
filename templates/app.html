@@ -827,7 +827,9 @@ function anApplyMonth(){
   renderAnalytics();
 }
 
-// Re-check Month checkboxes after a refetch so the dropdown reflects current state
+// Re-check Month checkboxes after a refetch so the dropdown reflects current state.
+// IMPORTANT: do NOT call ddChange here — it would fire the registered onChange
+// (anApplyMonth), which calls renderAnalytics again, causing an infinite loop.
 function anRestoreMonthSelection(){
   const am = window._analyticsM || '';
   if(!am) return;
@@ -835,10 +837,15 @@ function anRestoreMonthSelection(){
   const keyToLabel = {};
   MONTHS.forEach(function(m){ keyToLabel[m.v] = m.l; });
   const wantLabels = new Set([...keys].map(function(k){ return keyToLabel[k]; }).filter(Boolean));
+  let count = 0;
   document.querySelectorAll('#an_mo_dd_p input').forEach(function(cb){
-    if(wantLabels.has(cb.value)){ cb.checked = true; }
+    if(wantLabels.has(cb.value)){ cb.checked = true; count++; }
   });
-  ddChange('an_mo_dd');
+  const badge = g('an_mo_dd_c');
+  if(badge){
+    badge.textContent = count;
+    badge.style.display = count > 0 ? '' : 'none';
+  }
 }
 
 // Analytics filter: update stats, charts, tables, matrix
