@@ -387,12 +387,19 @@ def api_reconciliation(quarter):
     except Exception as e:
         import traceback; traceback.print_exc(); return jsonify({"error":str(e)}),500
 
-# -- ADMIN: PM DATA DIAGNOSTIC + RECLASSIFICATION -------------------------
-# Read-only diagnostic and a write-mode reclassifier to detect and fix
-# stale/duplicate/mis-classified pm_ entries that cause amount inflation
-# during finance reconciliation. Same logic as diagnose_pm_duplicates.py
-# and reclassify_pm_entries.py, but runs against whatever backend the
-# deployed app talks to (Postgres in prod, Sheets locally).
+# -- ADMIN: PM DATA DIAGNOSTIC + RECLASSIFICATION + DEDUPE ----------------
+# Three admin-only endpoints to detect and fix data integrity problems
+# in pm_ entries that cause amount inflation during finance reconciliation:
+#   1. GET  /api/admin/pm_diagnose    — read-only audit (duplicates,
+#                                        stale finance_cat, orphans, etc.)
+#   2. POST /api/admin/pm_reclassify  — re-apply canonical PM_CHANNEL_MAP
+#                                        to rows with stale bu/finance_cat
+#   3. POST /api/admin/pm_dedupe      — collapse duplicate pm_ rows
+#                                        (same country+activity+month)
+# All require role='admin'. Default to dry-run; require ?commit=1 to write.
+# Same logic as diagnose_pm_duplicates.py / reclassify_pm_entries.py but
+# runs against whatever backend the app is wired to (Postgres in prod,
+# Sheets locally).
 @app.route("/api/admin/pm_diagnose")
 @require_login
 @require_admin
