@@ -500,6 +500,96 @@ def api_admin_pm_diagnose():
         import traceback; traceback.print_exc(); return jsonify({"error":str(e)}),500
 
 
+@app.route("/api/admin/pm_dedupe", methods=["POST"])
+@require_login
+@require_admin
+def api_admin_pm_dedupe():
+    """Collapse duplicate pm_ entries: when (country, activity_name, month) has
+    >1 row, keep the most-recently-updated row with the largest actual, sum the
+    others' actuals into it, and delete the extras.
+    Pass ?commit=1 to actually write — without it this is dry-run.
+    Optional: ?country, ?month, ?activity to scope the operation.
+    """
+    try:
+        from collections import defaultdict
+        commit = request.args.get("commit","")=="1"
+        f_co = request.args.get("country","").strip()
+        f_mo = request.args.get("month","").strip()
+        f_act = request.args.get("activity","").strip().lower()
+
+        ws = get_sheet(TAB_ENTRIES)
+        all_entries = safe_get_records(ws, TAB_ENTRIES)
+
+        bucket = defaultdict(list)  # key -> [(idx, entry), ...]
+        for i, e in enumerate(all_entries):
+            if not str(e.get("id","")).startswith("pm_"): continue
+            co, act, mo = str(e.get("country","")), str(e.get("activity_name","")), str(e.get("month",""))
+            if f_co and co != f_co: continue
+            if f_mo and mo != f_mo: continue
+            if f_act and f_act not in act.lower(): continue
+            if not (co and act and mo): continue
+            bucket[(co, act, mo)].append((i, e))
+
+        plans = []  # what we'd do
+        for key, rows in bucket.items():
+            if len(rows) <= 1: continue
+            # Keeper: largest actual; tiebreak by most recent updated_at
+            rows_sorted = sorted(rows, key=lambda x: (
+                float(x[1].get("actual") or 0),
+                str(x[1].get("updated_at",""))
+            ), reverse=True)
+            keeper_idx, keeper = rows_sorted[0]
+            extras = rows_sorted[1:]
+            keeper_actual = float(keeper.get("actual") or 0)
+            extras_actual = sum(float(e.get("actual") or 0) for _, e in extras)
+            plans.append({
+                "country":key[0], "activity_name":key[1], "month":key[2],
+                "keeper":{"id":str(keeper.get("id","")), "row":keeper_idx+2,
+                          "actual":keeper_actual},
+                "delete":[{"id":str(e.get("id","")), "row":i+2,
+                           "actual":float(e.get("actual") or 0)} for i,e in extras],
+                "extras_actual_sum":round(extras_actual, 2),
+                "new_keeper_actual":round(keeper_actual + extras_actual, 2),
+            })
+
+        result = {"ok":True, "commit":commit,
+                  "duplicate_groups":len(plans),
+                  "rows_to_delete":sum(len(p["delete"]) for p in plans),
+                  "total_inflation_to_remove":round(sum(p["extras_actual_sum"] for p in plans),2),
+                  "plans":plans[:100]}
+        if not commit: return jsonify(result)
+
+        # COMMIT path: update keepers, then delete extras (delete from bottom up)
+        now = datetime.utcnow().isoformat()
+        updated = 0; deleted = 0; failed = []
+        # First: update each keeper's actual to keeper + extras sum
+        for p in plans:
+            try:
+                ws.update(f"O{p['keeper']['row']}", [[p['new_keeper_actual']]])  # col O = actual (col 15)
+                ws.update(f"X{p['keeper']['row']}", [[now]])
+                updated += 1
+            except Exception as ex:
+                failed.append({"step":"update_keeper", "row":p['keeper']['row'], "error":str(ex)})
+        # Second: delete extras, bottom-up to keep row indices stable
+        rows_to_delete_sorted = sorted(
+            [(p, d) for p in plans for d in p["delete"]],
+            key=lambda x: -x[1]["row"]
+        )
+        for p, d in rows_to_delete_sorted:
+            try:
+                ws.delete_rows(d["row"])
+                deleted += 1
+            except Exception as ex:
+                failed.append({"step":"delete_extra", "row":d["row"], "error":str(ex)})
+        invalidate_cache(TAB_ENTRIES)
+        result["updated_keepers"] = updated
+        result["deleted_extras"] = deleted
+        result["failed"] = failed
+        return jsonify(result)
+    except Exception as e:
+        import traceback; traceback.print_exc(); return jsonify({"error":str(e)}),500
+
+
 @app.route("/api/admin/pm_reclassify", methods=["POST"])
 @require_login
 @require_admin
