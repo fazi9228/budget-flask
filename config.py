@@ -121,6 +121,10 @@ DEFAULT_BU_LIST = [
     "Marketing - Refer a friend - 613000003XXX",
     "AMF1",
 ]
+# Canonical finance categories — keep this list in sync with PM_CHANNEL_MAP
+# values for finance_cat. Adding a value here makes it selectable in the UI
+# dropdown for manual entries. "Paid Social-TA Media" was added so the
+# TA Media BQ channel_group has its own clean reporting bucket.
 DEFAULT_FIN_CATS = [
     "Affiliate","PPC","PMAX","Programmatic","Bing","Paid Social-Meta",
     "Paid Social-Twitter","Paid Social-Youtube","Paid Social-Douyin",

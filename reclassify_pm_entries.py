@@ -8,7 +8,12 @@ the "Douyin tagged as PPC" / "TA Media tagged as Programmatic" type drift.
 
 Reads only on dry-run. Writes only with --commit.
 
-Usage:
+For the equivalent in-app reclassify against the live backend (Postgres
+in prod, Sheets locally), use the admin endpoint:
+  POST /api/admin/pm_reclassify          # dry-run
+  POST /api/admin/pm_reclassify?commit=1 # apply
+
+Usage (CLI, against local Sheets):
   python reclassify_pm_entries.py            # dry-run, prints what would change
   python reclassify_pm_entries.py --commit   # apply
 """

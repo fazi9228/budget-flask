@@ -6,6 +6,10 @@ DATA ACCESS (for Postgres port):
   reads:  get_sheet, safe_get_records, get_records_cached, rows_for_cached
   writes: ws.append_row, ws.update, ws.delete_rows, invalidate_cache
 See PORTING.md.
+
+NOTE: ensure_channel / ensure_activity match channel and activity names
+case-insensitively with both sides trimmed (see _norm) — prevents
+duplicate channel creation when names drift in casing or whitespace.
 """
 import io, csv, uuid, json
 from datetime import datetime

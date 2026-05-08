@@ -13,6 +13,11 @@ KEY INVARIANTS:
   2. Activities under the umbrella are normalised to canonical names
      (e.g. "Meta HK" in BQ → "Meta" activity).
   3. Planned is never overwritten — sync only updates actual.
+  4. Channel/activity name lookup is case-insensitive + trim-both-sides
+     so post-rename drift doesn't create duplicate channels (see _norm).
+  5. bu/finance_cat/marketing_cat are ALWAYS rewritten from PM_CHANNEL_MAP
+     on every sync — historical entries get re-classified automatically
+     when the mapping config changes.
 """
 import uuid, time
 from datetime import datetime

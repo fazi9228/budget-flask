@@ -817,7 +817,10 @@ function anBuildCharts(data, filterCo, filterCh, filterMc){
   }
 }
 
-// Month filter triggers a refetch (server-side filter on entries)
+// Month filter triggers a server refetch with ?month=YYYY-MM[,YYYY-MM,...]
+// The other filters (Country/Channel/Marketing Cat) work client-side on the
+// fetched aggregates, but Month requires hitting the backend because the
+// /api/analytics endpoint only ships per-quarter aggregates by default.
 function anApplyMonth(){
   const labels = ddGetValues('an_mo_dd');
   const labelToKey = {};

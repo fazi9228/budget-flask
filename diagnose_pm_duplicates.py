@@ -15,7 +15,11 @@ Specifically catches:
 
 Reads only — never writes. Safe to run anywhere.
 
-Usage:
+For the equivalent in-app diagnostic against the live backend (Postgres
+in prod, Sheets locally), use the admin endpoint:
+  GET /api/admin/pm_diagnose[?country=&month=&activity=]
+
+Usage (CLI, against local Sheets):
   python diagnose_pm_duplicates.py
 """
 from collections import defaultdict, Counter
