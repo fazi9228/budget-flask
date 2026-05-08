@@ -125,7 +125,7 @@ DEFAULT_FIN_CATS = [
     "Affiliate","PPC","PMAX","Programmatic","Bing","Paid Social-Meta",
     "Paid Social-Twitter","Paid Social-Youtube","Paid Social-Douyin",
     "Paid Social-Weibo","Paid Social-Rednote","Paid Social-Wechat",
-    "Paid Social-KOC","Baidu-Display","Baidu-PPC","Event",
+    "Paid Social-KOC","Paid Social-TA Media","Baidu-Display","Baidu-PPC","Event",
     "Local Direct Deals","Influencer/KOL","Local SEO",
     "Campaigns/Promotions","Partner","Premium","RAF",
     "AMF1 Race Tickets","AMF1 Activation","Marketing Technology",
@@ -172,14 +172,14 @@ PM_CHANNEL_MAP = {
     # Additional paid social platforms
     'WeChat':    {'channel_name':PM_UMBRELLA_CHANNEL,'activity_name':'WeChat',   'bu':'Marketing : Paid Social / YouTube - 613000004XXX','finance_cat':'Paid Social-Wechat', 'marketing_cat':'Performance Marketing'},
     'Kuaishou':  {'channel_name':PM_UMBRELLA_CHANNEL,'activity_name':'Kuaishou', 'bu':'Marketing : Paid Social / YouTube - 613000004XXX','finance_cat':'Paid Social-Meta',   'marketing_cat':'Performance Marketing'},
-    'TA Media':  {'channel_name':PM_UMBRELLA_CHANNEL,'activity_name':'TA Media', 'bu':'Marketing : Programmatic - 613000009XXX',         'finance_cat':'Programmatic',        'marketing_cat':'Performance Marketing'},
+    'TA Media':  {'channel_name':PM_UMBRELLA_CHANNEL,'activity_name':'TA Media', 'bu':'Marketing : Paid Social / YouTube - 613000004XXX','finance_cat':'Paid Social-TA Media','marketing_cat':'Performance Marketing'},
     # Affiliate cluster → Affiliate - CPA & FF channel
     'Affiliates': {'channel_name':AFFILIATE_CHANNEL,'activity_name':'Affiliate','bu':'Marketing : Affiliate - 613000002XXX','finance_cat':'Affiliate','marketing_cat':'Affiliate - CPA & FF'},
 }
 
 # Fallback when a Channel_Group doesn't normalise to anything known
 PM_DEFAULT_MAPPING = {'channel_name':PM_UMBRELLA_CHANNEL,'activity_name':'Others',
-                      'bu':'Marketing : Programmatic - 613000009XXX','finance_cat':'PPC','marketing_cat':'PPC / Search'}
+                      'bu':'Marketing : Programmatic - 613000009XXX','finance_cat':'PPC','marketing_cat':'Performance Marketing'}
 
 # ═══════════════════════════════════════════════════════════════════
 #  NORMALISATION — "Meta HK", "meta-agency", "FB" → "Meta"
