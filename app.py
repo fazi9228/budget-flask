@@ -397,11 +397,27 @@ def api_reconciliation(quarter):
 @require_login
 @require_admin
 def api_admin_pm_diagnose():
+    """Diagnostic for PM data integrity. Optional filters:
+       ?country=CN    scope to one country
+       ?month=2026-04 scope to one month (e.g. April only)
+       ?activity=AdRoll  scope to one activity (case-insensitive contains)
+    Without filters, runs across everything."""
     try:
         from collections import Counter
-        entries = safe_get_records(get_sheet(TAB_ENTRIES), TAB_ENTRIES)
+        f_co = request.args.get("country","").strip()
+        f_mo = request.args.get("month","").strip()
+        f_act = request.args.get("activity","").strip().lower()
+
+        all_entries = safe_get_records(get_sheet(TAB_ENTRIES), TAB_ENTRIES)
         channels = safe_get_records(get_sheet(TAB_CHANNELS), TAB_CHANNELS)
         activities = safe_get_records(get_sheet(TAB_ACTIVITIES), TAB_ACTIVITIES)
+
+        def matches(e):
+            if f_co and str(e.get("country","")) != f_co: return False
+            if f_mo and str(e.get("month","")) != f_mo: return False
+            if f_act and f_act not in str(e.get("activity_name","")).lower(): return False
+            return True
+        entries = [e for e in all_entries if matches(e)]
         pm_entries = [e for e in entries if str(e.get("id","")).startswith("pm_")]
         channel_ids = {str(c.get("id","")) for c in channels}
         activity_ids = {str(a.get("id","")) for a in activities}
