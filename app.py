@@ -512,8 +512,15 @@ def api_admin_pm_diagnose():
 @require_admin
 def api_admin_pm_dedupe():
     """Collapse duplicate pm_ entries: when (country, activity_name, month) has
-    >1 row, keep the most-recently-updated row with the largest actual, sum the
-    others' actuals into it, and delete the extras.
+    >1 row, keep the row with the largest actual (tiebreak: most-recent
+    updated_at) and DELETE the others.
+
+    IMPORTANT: extras are NOT summed into the keeper. PM sync writes the full
+    aggregated BQ spend on every run, so duplicates represent stale snapshots
+    of the same underlying BQ row taken at different times — not independent
+    spend. The largest actual is the latest/most-complete value; the rest are
+    earlier partial reads that should be discarded.
+
     Pass ?commit=1 to actually write — without it this is dry-run.
     Optional: ?country, ?month, ?activity to scope the operation.
     """
@@ -549,35 +556,28 @@ def api_admin_pm_dedupe():
             extras = rows_sorted[1:]
             keeper_actual = float(keeper.get("actual") or 0)
             extras_actual = sum(float(e.get("actual") or 0) for _, e in extras)
+            # Keeper's actual is unchanged. Extras get deleted, their actuals
+            # discarded (they're stale snapshots of the same BQ data).
             plans.append({
                 "country":key[0], "activity_name":key[1], "month":key[2],
                 "keeper":{"id":str(keeper.get("id","")), "row":keeper_idx+2,
                           "actual":keeper_actual},
                 "delete":[{"id":str(e.get("id","")), "row":i+2,
                            "actual":float(e.get("actual") or 0)} for i,e in extras],
-                "extras_actual_sum":round(extras_actual, 2),
-                "new_keeper_actual":round(keeper_actual + extras_actual, 2),
+                "extras_actual_discarded":round(extras_actual, 2),
+                "new_keeper_actual":keeper_actual,
             })
 
         result = {"ok":True, "commit":commit,
                   "duplicate_groups":len(plans),
                   "rows_to_delete":sum(len(p["delete"]) for p in plans),
-                  "total_inflation_to_remove":round(sum(p["extras_actual_sum"] for p in plans),2),
+                  "total_inflation_to_remove":round(sum(p["extras_actual_discarded"] for p in plans),2),
                   "plans":plans[:100]}
         if not commit: return jsonify(result)
 
-        # COMMIT path: update keepers, then delete extras (delete from bottom up)
-        now = datetime.utcnow().isoformat()
-        updated = 0; deleted = 0; failed = []
-        # First: update each keeper's actual to keeper + extras sum
-        for p in plans:
-            try:
-                ws.update(f"O{p['keeper']['row']}", [[p['new_keeper_actual']]])  # col O = actual (col 15)
-                ws.update(f"X{p['keeper']['row']}", [[now]])
-                updated += 1
-            except Exception as ex:
-                failed.append({"step":"update_keeper", "row":p['keeper']['row'], "error":str(ex)})
-        # Second: delete extras, bottom-up to keep row indices stable
+        # COMMIT path: keeper's actual is unchanged — just delete extras.
+        # Bottom-up so row indices stay stable mid-loop.
+        deleted = 0; failed = []
         rows_to_delete_sorted = sorted(
             [(p, d) for p in plans for d in p["delete"]],
             key=lambda x: -x[1]["row"]
@@ -589,7 +589,6 @@ def api_admin_pm_dedupe():
             except Exception as ex:
                 failed.append({"step":"delete_extra", "row":d["row"], "error":str(ex)})
         invalidate_cache(TAB_ENTRIES)
-        result["updated_keepers"] = updated
         result["deleted_extras"] = deleted
         result["failed"] = failed
         return jsonify(result)
